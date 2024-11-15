@@ -110,52 +110,38 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
   };
 
   try {
-    // Launch the browser with enhanced stealth configurations
-    browser = await puppeteer.launch({
-      headless: "new", // Use the latest headless mode
-      slowMo: 50, // Slows down Puppeteer operations by 50ms to mimic human interactions
-      defaultViewport: { width: 1920, height: 1080 }, // Set viewport to a common resolution
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
-        "--no-first-run",
-        "--no-zygote",
-        "--single-process", // <- this one doesn't work in Windows
-        "--disable-gpu",
-      ],
+    // Connect Puppeteer to the scraping browser endpoint
+    browser = await puppeteer.connect({
+      browserWSEndpoint: 'wss://brd-customer-hl_18082aa6-zone-macos_scrapig:sw8sxnlydi8x@brd.superproxy.io:9222',
     });
-
+  
     page = await browser.newPage();
-
-    // **Set User-Agent and Additional Headers**
+  
+    // Set User-Agent only if needed
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-        "AppleWebKit/537.36 (KHTML, like Gecko) " +
-        "Chrome/112.0.0.0 Safari/537.36"
+      "AppleWebKit/537.36 (KHTML, like Gecko) " +
+      "Chrome/112.0.0.0 Safari/537.36"
     );
-
-    await page.setExtraHTTPHeaders({
-      "Accept-Language": "en-US,en;q=0.9",
-    });
-
-    // **Enable Request Interception for Blocking Ads**
+  
+    // Enable Request Interception for Blocking Ads
     await page.setRequestInterception(true);
-
+  
     page.on("request", (request) => {
       const url = request.url();
       const resourceType = request.resourceType();
       const isBlocked =
         blockedDomains.some((domain) => url.includes(domain)) ||
         blockedResourceTypes.includes(resourceType);
-
+  
       if (isBlocked) {
         request.abort();
       } else {
         request.continue();
       }
     });
+  
+    console.log("Connected to the remote browser and ready to navigate.");
 
     // **Navigate to the Target Website**
     console.log("Navigating to the website...");
