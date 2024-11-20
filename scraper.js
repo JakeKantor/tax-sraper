@@ -39,13 +39,21 @@ async function extractTaxValue(page, labels) {
     // Attempt to find any of the possible labels
     const taxValue = await page.evaluate((labels) => {
       for (const lbl of labels) {
-        const labelElements = Array.from(document.querySelectorAll("div.form-group > div.form-label"));
-        const targetLabel = labelElements.find((el) => el.textContent.trim() === lbl);
+        const labelElements = Array.from(
+          document.querySelectorAll("div.form-group > div.form-label")
+        );
+        const targetLabel = labelElements.find(
+          (el) => el.textContent.trim() === lbl
+        );
         if (targetLabel) {
-          const valueElement = targetLabel.parentElement.querySelector("div.form-control-plaintext");
+          const valueElement = targetLabel.parentElement.querySelector(
+            "div.form-control-plaintext"
+          );
           if (valueElement) {
             // Remove $ and commas, then parse to float
-            const value = parseFloat(valueElement.textContent.replace(/[$,]/g, ""));
+            const value = parseFloat(
+              valueElement.textContent.replace(/[$,]/g, "")
+            );
             return isNaN(value) ? 0 : value;
           }
         }
@@ -69,10 +77,20 @@ async function extractTaxValue(page, labels) {
  * @param {string} address - The work address.
  * @param {string} city - The city.
  * @param {string} zipcode - The ZIP code.
- * @param {string} filingStatus - The federal filing status ('SINGLE' or 'MARRIED').
+ * @param {string} filingStatus - The federal filing status.
+ * @param {string} stateFilingStatus - The state filing status ('S', 'M', or 'MH').
  * @returns {Promise<void>} - Prints the calculated net pay and detailed tax information.
  */
-async function calculateNetPay(salary, withholding, state, address, city, zipcode, filingStatus) {
+async function calculateNetPay(
+  salary,
+  withholding,
+  state,
+  address,
+  city,
+  zipcode,
+  filingStatus,
+  stateFilingStatus
+) {
   const blockedResourceTypes = [
     "image",
     "media",
@@ -93,54 +111,42 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
   // Process the state input: lowercase and replace spaces with hyphens
   const processedState = state.toLowerCase().replace(/\s+/g, "-");
 
-  // Define a directory to save screenshots for debugging
-//   const screenshotDir = path.join(__dirname, "screenshots");
-//   if (!fs.existsSync(screenshotDir)) {
-//     fs.mkdirSync(screenshotDir);
-//   }
-
   let browser;
   let page;
-
-  // Mapping for state/local filing status
-  const stateLocalFilingStatusMap = {
-    SINGLE: "S",
-    MARRIED: "M",
-    // Add more mappings if necessary
-  };
 
   try {
     // Connect Puppeteer to the scraping browser endpoint
     browser = await puppeteer.connect({
-      browserWSEndpoint: 'wss://brd-customer-hl_18082aa6-zone-macos_scrapig:sw8sxnlydi8x@brd.superproxy.io:9222',
+      browserWSEndpoint:
+        "wss://brd-customer-hl_c86b85e7-zone-scraper_tax:7e3hc47mg10h@brd.superproxy.io:9222",
     });
-  
+
     page = await browser.newPage();
-  
+
     // Set User-Agent only if needed
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-      "AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/112.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) " +
+        "Chrome/112.0.0.0 Safari/537.36"
     );
-  
+
     // Enable Request Interception for Blocking Ads
     await page.setRequestInterception(true);
-  
+
     page.on("request", (request) => {
       const url = request.url();
       const resourceType = request.resourceType();
       const isBlocked =
         blockedDomains.some((domain) => url.includes(domain)) ||
         blockedResourceTypes.includes(resourceType);
-  
+
       if (isBlocked) {
         request.abort();
       } else {
         request.continue();
       }
     });
-  
+
     console.log("Connected to the remote browser and ready to navigate.");
 
     // **Navigate to the Target Website**
@@ -148,52 +154,59 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
     await page.goto("https://www.paycheckcity.com/calculator/salary/", {
       waitUntil: "networkidle2",
     });
-    // await page.screenshot({ path: path.join(screenshotDir, "step1_homepage.png") });
-    console.log("Homepage loaded and screenshot taken.");
+    console.log("Homepage loaded.");
 
     // **Click the "Select state" button**
-    const selectStateButtonSelector = 'a.btn-text.underline[href="#select-state-calculator"]';
-    await page.waitForSelector(selectStateButtonSelector, { visible: true, timeout: 30000 });
+    const selectStateButtonSelector =
+      'a.btn-text.underline[href="#select-state-calculator"]';
+    await page.waitForSelector(selectStateButtonSelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.click(selectStateButtonSelector);
     console.log('Clicked the "Select state" button.');
-    // await page.screenshot({ path: path.join(screenshotDir, "step2_clicked_select_state.png") });
 
     // **Handle the Ad Popup (if it appears)**
-    const adCloseButtonSelector = '.ad-close-button'; // Replace with actual selector
+    const adCloseButtonSelector = ".ad-close-button"; 
     try {
-      await page.waitForSelector(adCloseButtonSelector, { visible: true, timeout: 5000 });
+      await page.waitForSelector(adCloseButtonSelector, {
+        visible: true,
+        timeout: 5000,
+      });
       await page.click(adCloseButtonSelector);
       console.log("Closed the ad popup.");
-      // await page.screenshot({ path: path.join(screenshotDir, "step2a_closed_ad.png") });
     } catch (error) {
       console.log("Ad close button not found or ad did not appear.");
     }
 
     // **Wait for the State List to Appear**
     const stateListSelector = "ol.state-list-module--state-list--aaadc";
-    await page.waitForSelector(stateListSelector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(stateListSelector, {
+      visible: true,
+      timeout: 30000,
+    });
     console.log("State list is now visible.");
-    // await page.screenshot({ path: path.join(screenshotDir, "step3_state_list_visible.png") });
 
     // **Select the Specified State from the State List**
     const stateSelector = `a.btn-text.state-list-module--state-link--7b4b7[href="/calculator/salary/${processedState}"]`;
-    await page.waitForSelector(stateSelector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(stateSelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.click(stateSelector);
     console.log(`Selected "${state}" from the state list.`);
-    // await page.screenshot({ path: path.join(screenshotDir, `step4_selected_${processedState}.png`) });
 
     // **Inject Custom CSS to Hide Any Remaining Ads**
     const hideAdCSS = `
-      .ad-container, /* Replace with actual ad container selector */
-      #ad-modal, /* Replace with actual ad modal ID */
-      .popup-ad /* Replace with actual popup ad class */
+      .ad-container,
+      #ad-modal,
+      .popup-ad
       {
         display: none !important;
       }
     `;
     await page.addStyleTag({ content: hideAdCSS });
     console.log("Injected custom CSS to hide any remaining ad elements.");
-    // await page.screenshot({ path: path.join(screenshotDir, "step4b_hidden_ad.png") });
 
     // **Wait for Address Fields with Conditional Handling**
     const address1Selector = "#stateInfo\\.local\\.address1";
@@ -203,7 +216,10 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
     // Function to check if a selector exists
     async function checkSelector(selector) {
       try {
-        await page.waitForSelector(selector, { visible: true, timeout: 2000 }); // 2 seconds timeout
+        await page.waitForSelector(selector, {
+          visible: true,
+          timeout: 2000,
+        });
         return true;
       } catch (error) {
         return false;
@@ -217,7 +233,6 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
 
     if (addressExists && cityExists && zipExists) {
       console.log("Address fields are present. Proceeding to fill them.");
-      // await page.screenshot({ path: path.join(screenshotDir, "step5_address_fields_visible.png") });
 
       // **Enter Work Address**
       await page.evaluate(() => {
@@ -226,7 +241,6 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
       });
       await page.type(address1Selector, address, { delay: 100 });
       console.log(`Entered Work Address: "${address}".`);
-      // await page.screenshot({ path: path.join(screenshotDir, "step6_entered_address.png") });
 
       // **Enter City**
       await page.evaluate(() => {
@@ -235,7 +249,6 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
       });
       await page.type(citySelector, city, { delay: 100 });
       console.log(`Entered City: "${city}".`);
-      // await page.screenshot({ path: path.join(screenshotDir, "step7_entered_city.png") });
 
       // **Enter Zip Code**
       await page.evaluate(() => {
@@ -244,80 +257,94 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
       });
       await page.type(zipSelector, zipcode, { delay: 100 });
       console.log(`Entered Zip Code: "${zipcode}".`);
-      // await page.screenshot({ path: path.join(screenshotDir, "step8_entered_zip.png") });
+
+      // **Set State Filing Status if Applicable**
+      const stateFilingStatusSelector = "#stateInfo\\.parms\\.FILINGSTATUS";
+      const stateFilingStatusExists = await checkSelector(
+        stateFilingStatusSelector
+      );
+
+      if (stateFilingStatusExists) {
+        await page.select(stateFilingStatusSelector, stateFilingStatus);
+        console.log(`Set state filing status to "${stateFilingStatus}".`);
+      } else {
+        console.log(
+          "State filing status selector not found. Skipping state filing status."
+        );
+      }
     } else {
-      console.log("Address fields not found. Skipping address, city, and ZIP code entry.");
-      // Optionally, you can take a screenshot indicating the absence
-      // await page.screenshot({ path: path.join(screenshotDir, "step5_address_fields_not_found.png") });
+      console.log(
+        "Address fields not found. Skipping address, city, and ZIP code entry."
+      );
     }
 
     // **Set Salary Amount**
     const grossPaySelector = "#grossPay";
-    await page.waitForSelector(grossPaySelector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(grossPaySelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.evaluate(() => {
       const grossPayInput = document.getElementById("grossPay");
       if (grossPayInput) grossPayInput.value = "";
     });
     await page.type(grossPaySelector, salary.toString(), { delay: 100 });
     console.log(`Entered salary amount: $${salary}.`);
-    // await page.screenshot({ path: path.join(screenshotDir, "step9_entered_salary.png") });
 
     // **Select Pay Frequency as Annual**
     const payFrequencySelector = "#payFrequency";
-    await page.waitForSelector(payFrequencySelector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(payFrequencySelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.select(payFrequencySelector, "ANNUAL");
     console.log("Selected pay frequency as Annual.");
-    // await page.screenshot({ path: path.join(screenshotDir, "step10_selected_pay_frequency.png") });
 
-    // **Uncheck W4 2020 Checkbox if Checked**
+    // **Check W4 2020 Checkbox if Unchecked**
     const w42020Selector = "#w42020";
-    await page.waitForSelector(w42020Selector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(w42020Selector, {
+      visible: true,
+      timeout: 30000,
+    });
     const isChecked = await page.$eval(w42020Selector, (el) => el.checked);
-    if (isChecked) {
+    if (!isChecked) {
       await page.click(w42020Selector);
-      console.log("Unchecked W4 2020 checkbox.");
-      // await page.screenshot({ path: path.join(screenshotDir, "step11_unchecked_w42020.png") });
+      console.log("Checked W4 2020 checkbox.");
     } else {
-      console.log("W4 2020 checkbox is already unchecked.");
+      console.log("W4 2020 checkbox is already checked.");
     }
 
-    // **Set Additional Federal Withholding**
-    const additionalFederalWithholdingSelector = "#additionalFederalWithholding";
-    await page.waitForSelector(additionalFederalWithholdingSelector, { visible: true, timeout: 30000 });
-    await page.evaluate(() => {
-      const withholdingInput = document.getElementById("additionalFederalWithholding");
-      if (withholdingInput) withholdingInput.value = "";
-    });
-    await page.type(additionalFederalWithholdingSelector, withholding.toString(), { delay: 100 });
-    console.log(`Set additional federal withholding to $${withholding}.`);
-    // await page.screenshot({ path: path.join(screenshotDir, "step12_set_additional_withholding.png") });
-
     // **Set Federal Filing Status**
-    const filingStatusSelector = "#federalFilingStatusType"; // Updated selector based on provided HTML
-    await page.waitForSelector(filingStatusSelector, { visible: true, timeout: 30000 });
+    const filingStatusSelector = "#federalFilingStatusType2020";
+    await page.waitForSelector(filingStatusSelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.select(filingStatusSelector, filingStatus);
     console.log(`Set federal filing status to "${filingStatus}".`);
-    // await page.screenshot({ path: path.join(screenshotDir, "step13_set_filing_status.png") });
 
     // **Click the Calculate Button**
     const calculateButtonSelector = 'button[type="submit"].btn.btn-primary';
-    await page.waitForSelector(calculateButtonSelector, { visible: true, timeout: 30000 });
+    await page.waitForSelector(calculateButtonSelector, {
+      visible: true,
+      timeout: 30000,
+    });
     await page.click(calculateButtonSelector);
     console.log("Clicked the Calculate button.");
-    // await page.screenshot({ path: path.join(screenshotDir, "step15_clicked_calculate.png") });
 
     // **Wait for the Results to Load**
     const netPayLabelSelector = "strong.form-label";
     await page.waitForFunction(
       (selector) => {
         const elements = Array.from(document.querySelectorAll(selector));
-        return elements.some((el) => el.innerText.trim() === "Take home pay (net pay)");
+        return elements.some(
+          (el) => el.innerText.trim() === "Take home pay (net pay)"
+        );
       },
       { timeout: 60000 },
       netPayLabelSelector
     );
     console.log("Net Pay label found.");
-    // await page.screenshot({ path: path.join(screenshotDir, "step16_net_pay_label_found.png") });
 
     // **Extract and Return Net Pay and Tax Details**
     // Define the tax categories and their corresponding labels (including possible variations)
@@ -325,12 +352,17 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
       { name: "Net Pay", labels: ["Take home pay (net pay)"] },
       { name: "Federal Withholding", labels: ["Federal Withholding"] },
       { name: "State Tax Withholding", labels: ["State Tax Withholding"] },
-      { name: "City Tax", labels: ["City Tax"] }, // You may need to add state-specific labels
+      { name: "City Tax", labels: ["City Tax"] },
       { name: "Medicare", labels: ["Medicare"] },
       { name: "Social Security", labels: ["Social Security"] },
-      { name: "State Disability Insurance (SDI)", labels: ["State Disability Insurance (SDI)"] },
-      { name: "Family Leave Insurance (FLI)", labels: ["Family Leave Insurance (FLI)"] },
-
+      {
+        name: "State Disability Insurance (SDI)",
+        labels: ["State Disability Insurance (SDI)"],
+      },
+      {
+        name: "Family Leave Insurance (FLI)",
+        labels: ["Family Leave Insurance (FLI)"],
+      },
       // Add more categories or label variations as needed
     ];
 
@@ -342,11 +374,9 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
     }
 
     // Handle "Other" taxes by extracting any additional taxes not listed above
-    // Option 1: Predefined "Other" Tax Labels
     const otherTaxLabels = [
       "State Disability Insurance (SDI)",
       "Family Leave Insurance (FLI)",
-      // Add other "Other" tax labels here if known
     ];
 
     let otherTaxes = 0;
@@ -373,23 +403,39 @@ async function calculateNetPay(salary, withholding, state, address, city, zipcod
 
     // Print detailed tax information
     console.log("\nDetailed Tax Information:");
-    console.log(`1. Federal Withholding: $${taxDetails["Federal Withholding"].toLocaleString()} (${percentages["Federal Withholding"]})`);
-    console.log(`2. State Tax Withholding: $${taxDetails["State Tax Withholding"].toLocaleString()} (${percentages["State Tax Withholding"]})`);
-    console.log(`3. City Tax: $${taxDetails["City Tax"].toLocaleString()} (${percentages["City Tax"]})`);
-    console.log(`4. Medicare: $${taxDetails["Medicare"].toLocaleString()} (${percentages["Medicare"]})`);
-    console.log(`5. Social Security: $${taxDetails["Social Security"].toLocaleString()} (${percentages["Social Security"]})`);
-    console.log(`6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`);
-
-    // **Optional: Take a Final Screenshot of the Results**
-    // await page.screenshot({ path: path.join(screenshotDir, "step17_final_results.png") });
+    console.log(
+      `1. Federal Withholding: $${taxDetails[
+        "Federal Withholding"
+      ].toLocaleString()} (${percentages["Federal Withholding"]})`
+    );
+    console.log(
+      `2. State Tax Withholding: $${taxDetails[
+        "State Tax Withholding"
+      ].toLocaleString()} (${percentages["State Tax Withholding"]})`
+    );
+    console.log(
+      `3. City Tax: $${taxDetails["City Tax"].toLocaleString()} (${percentages["City Tax"]})`
+    );
+    console.log(
+      `4. Medicare: $${taxDetails["Medicare"].toLocaleString()} (${percentages["Medicare"]})`
+    );
+    console.log(
+      `5. Social Security: $${taxDetails[
+        "Social Security"
+      ].toLocaleString()} (${percentages["Social Security"]})`
+    );
+    console.log(
+      `6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`
+    );
 
     return;
   } catch (error) {
-    console.error("An error occurred during the Puppeteer script execution:", error);
-    // **Capture a Screenshot on Error**
+    console.error(
+      "An error occurred during the Puppeteer script execution:",
+      error
+    );
     if (page) {
       try {
-        // await page.screenshot({ path: path.join(screenshotDir, "error.png") });
         console.log("Error screenshot would have been saved at screenshots/error.png");
       } catch (screenshotError) {
         console.error("Failed to capture error screenshot:", screenshotError);
@@ -415,20 +461,28 @@ async function main() {
     console.log("Welcome to the Net Pay Calculator!");
 
     // **Prompt for Salary**
-    let salaryInput = await askQuestion("Please enter your annual salary (e.g., 120000): ");
+    let salaryInput = await askQuestion(
+      "Please enter your annual salary (e.g., 120000): "
+    );
     let salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
     while (isNaN(salary) || salary <= 0) {
       console.log("Invalid salary. Please enter a positive number.");
-      salaryInput = await askQuestion("Please enter your annual salary (e.g., 120000): ");
+      salaryInput = await askQuestion(
+        "Please enter your annual salary (e.g., 120000): "
+      );
       salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
     }
 
     // **Prompt for Withholding**
-    let withholdingInput = await askQuestion("Please enter your additional federal withholding amount (e.g., 10): ");
+    let withholdingInput = await askQuestion(
+      "Please enter your additional federal withholding amount (e.g., 10): "
+    );
     let withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
     while (isNaN(withholding) || withholding < 0) {
       console.log("Invalid withholding. Please enter a non-negative number.");
-      withholdingInput = await askQuestion("Please enter your additional federal withholding amount (e.g., 10): ");
+      withholdingInput = await askQuestion(
+        "Please enter your additional federal withholding amount (e.g., 10): "
+      );
       withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
     }
 
@@ -440,40 +494,75 @@ async function main() {
     }
 
     // **Prompt for Address**
-    let address = await askQuestion("Please enter your work address (e.g., 35 Hudson Yards): ");
+    let address = await askQuestion(
+      "Please enter your work address (e.g., 35 Hudson Yards): "
+    );
     while (!address.trim()) {
       console.log("Address cannot be empty. Please enter a valid address.");
-      address = await askQuestion("Please enter your work address (e.g., 35 Hudson Yards): ");
+      address = await askQuestion(
+        "Please enter your work address (e.g., 35 Hudson Yards): "
+      );
     }
 
     // **Prompt for City**
-    let city = await askQuestion("Please enter your city (e.g., Hudson Yards): ");
+    let city = await askQuestion(
+      "Please enter your city (e.g., Hudson Yards): "
+    );
     while (!city.trim()) {
       console.log("City cannot be empty. Please enter a valid city.");
-      city = await askQuestion("Please enter your city (e.g., Hudson Yards): ");
+      city = await askQuestion(
+        "Please enter your city (e.g., Hudson Yards): "
+      );
     }
 
     // **Prompt for Zipcode**
-    let zipcode = await askQuestion("Please enter your ZIP code (e.g., 10001): ");
+    let zipcode = await askQuestion(
+      "Please enter your ZIP code (e.g., 10001): "
+    );
     while (!/^\d{5}(-\d{4})?$/.test(zipcode.trim())) {
-      console.log("Invalid ZIP code. Please enter a 5-digit ZIP code or ZIP+4 format.");
-      zipcode = await askQuestion("Please enter your ZIP code (e.g., 10001): ");
+      console.log(
+        "Invalid ZIP code. Please enter a 5-digit ZIP code or ZIP+4 format."
+      );
+      zipcode = await askQuestion(
+        "Please enter your ZIP code (e.g., 10001): "
+      );
     }
 
     // **Prompt for Filing Status**
-    let filingStatusInput = await askQuestion("Are you single? (y/n): ");
+    console.log("Please select your filing status:");
+    console.log("1. Single or Married Filing Separately");
+    console.log("2. Married Filing Jointly");
+    console.log("3. Head of Household");
+    console.log("4. Nonresident Alien");
+    let filingStatusInput = await askQuestion(
+      "Enter the number corresponding to your filing status: "
+    );
     let filingStatus = "";
+    let stateFilingStatus = "";
+
     while (true) {
-      filingStatusInput = filingStatusInput.trim().toLowerCase();
-      if (["y", "yes", "s", "single"].includes(filingStatusInput)) {
+      filingStatusInput = filingStatusInput.trim();
+      if (filingStatusInput === "1") {
         filingStatus = "SINGLE";
+        stateFilingStatus = "S";
         break;
-      } else if (["n", "no", "m", "married"].includes(filingStatusInput)) {
+      } else if (filingStatusInput === "2") {
         filingStatus = "MARRIED";
+        stateFilingStatus = "M";
+        break;
+      } else if (filingStatusInput === "3") {
+        filingStatus = "HEAD_OF_HOUSEHOLD";
+        stateFilingStatus = "S"; // Head of Household treated as Single for state taxes
+        break;
+      } else if (filingStatusInput === "4") {
+        filingStatus = "NONRESIDENT_ALIEN";
+        stateFilingStatus = "S";
         break;
       } else {
-        console.log("Invalid input. Please enter 'y' for single or 'n' for married.");
-        filingStatusInput = await askQuestion("Are you single? (y/n): ");
+        console.log("Invalid input. Please enter a number between 1 and 4.");
+        filingStatusInput = await askQuestion(
+          "Enter the number corresponding to your filing status: "
+        );
       }
     }
 
@@ -486,7 +575,8 @@ async function main() {
       address, // address
       city, // city
       zipcode, // zipcode
-      filingStatus // filingStatus
+      filingStatus, // federal filingStatus
+      stateFilingStatus // state filingStatus
     );
   } catch (error) {
     console.error("Failed to calculate net pay:", error);
