@@ -78,7 +78,6 @@ async function extractTaxValue(page, labels) {
  * @param {string} city - The city.
  * @param {string} zipcode - The ZIP code.
  * @param {string} filingStatus - The federal filing status.
- * @param {string} stateFilingStatus - The state filing status ('S', 'M', or 'MH').
  * @returns {Promise<void>} - Prints the calculated net pay and detailed tax information.
  */
 async function calculateNetPay(
@@ -88,8 +87,7 @@ async function calculateNetPay(
   address,
   city,
   zipcode,
-  filingStatus,
-  stateFilingStatus
+  filingStatus
 ) {
   const blockedResourceTypes = [
     "image",
@@ -167,7 +165,7 @@ async function calculateNetPay(
     console.log('Clicked the "Select state" button.');
 
     // **Handle the Ad Popup (if it appears)**
-    const adCloseButtonSelector = ".ad-close-button"; 
+    const adCloseButtonSelector = ".ad-close-button"; // Replace with actual selector
     try {
       await page.waitForSelector(adCloseButtonSelector, {
         visible: true,
@@ -219,7 +217,7 @@ async function calculateNetPay(
         await page.waitForSelector(selector, {
           visible: true,
           timeout: 2000,
-        });
+        }); // 2 seconds timeout
         return true;
       } catch (error) {
         return false;
@@ -265,6 +263,17 @@ async function calculateNetPay(
       );
 
       if (stateFilingStatusExists) {
+        // Map federal filing status to state filing status internally
+        let stateFilingStatus;
+        if (filingStatus === "MARRIED") {
+          stateFilingStatus = "M";
+        } else if (filingStatus === "MARRIED_USE_SINGLE_RATE") {
+          stateFilingStatus = "MH";
+        } else {
+          // For SINGLE, HEAD_OF_HOUSEHOLD, NONRESIDENT_ALIEN, etc.
+          stateFilingStatus = "S";
+        }
+
         await page.select(stateFilingStatusSelector, stateFilingStatus);
         console.log(`Set state filing status to "${stateFilingStatus}".`);
       } else {
@@ -377,6 +386,7 @@ async function calculateNetPay(
     const otherTaxLabels = [
       "State Disability Insurance (SDI)",
       "Family Leave Insurance (FLI)",
+      // Add other "Other" tax labels here if known
     ];
 
     let otherTaxes = 0;
@@ -538,25 +548,20 @@ async function main() {
       "Enter the number corresponding to your filing status: "
     );
     let filingStatus = "";
-    let stateFilingStatus = "";
 
     while (true) {
       filingStatusInput = filingStatusInput.trim();
       if (filingStatusInput === "1") {
         filingStatus = "SINGLE";
-        stateFilingStatus = "S";
         break;
       } else if (filingStatusInput === "2") {
         filingStatus = "MARRIED";
-        stateFilingStatus = "M";
         break;
       } else if (filingStatusInput === "3") {
         filingStatus = "HEAD_OF_HOUSEHOLD";
-        stateFilingStatus = "S"; // Head of Household treated as Single for state taxes
         break;
       } else if (filingStatusInput === "4") {
         filingStatus = "NONRESIDENT_ALIEN";
-        stateFilingStatus = "S";
         break;
       } else {
         console.log("Invalid input. Please enter a number between 1 and 4.");
@@ -575,8 +580,7 @@ async function main() {
       address, // address
       city, // city
       zipcode, // zipcode
-      filingStatus, // federal filingStatus
-      stateFilingStatus // state filingStatus
+      filingStatus // federal filingStatus
     );
   } catch (error) {
     console.error("Failed to calculate net pay:", error);
