@@ -4,6 +4,9 @@ const path = require("path");
 const fs = require("fs");
 const readline = require("readline");
 
+// Import compareTaxData from scraper2.js
+const { compareTaxData } = require("./scraper2.js");
+
 // Enable stealth mode with default configurations
 puppeteer.use(StealthPlugin());
 
@@ -360,8 +363,8 @@ async function calculateNetPay(
     const taxCategories = [
       { name: "Net Pay", labels: ["Take home pay (net pay)"] },
       { name: "Federal Withholding", labels: ["Federal Withholding"] },
-      { name: "State Tax Withholding", labels: ["State Tax Withholding"] },
-      { name: "City Tax", labels: ["City Tax"] },
+      { name: "State Tax Withholding", labels: ["State Withholding"] },
+      { name: "City Tax", labels: ["Local Withholding"] },
       { name: "Medicare", labels: ["Medicare"] },
       { name: "Social Security", labels: ["Social Security"] },
       {
@@ -400,14 +403,18 @@ async function calculateNetPay(
     // Calculate percentages
     const percentages = {};
     for (const [key, value] of Object.entries(taxDetails)) {
-      percentages[key] = ((value / salary) * 100).toFixed(2) + "%";
+      if (key !== "Net Pay") {
+        percentages[key] = ((value / salary) * 100).toFixed(2) + "%";
+      }
     }
 
     // Ensure all taxDetails have numerical values before calling toLocaleString
     for (const key of Object.keys(taxDetails)) {
       if (typeof taxDetails[key] !== "number" || isNaN(taxDetails[key])) {
         taxDetails[key] = 0;
-        percentages[key] = "0.00%";
+        if (key !== "Net Pay") {
+          percentages[key] = "0.00%";
+        }
       }
     }
 
@@ -437,6 +444,43 @@ async function calculateNetPay(
     console.log(
       `6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`
     );
+
+    // Add Medicare and Social Security to get FICA
+    const ficaFromOther =
+      taxDetails["Medicare"] + taxDetails["Social Security"];
+
+    // Prepare taxDataToCompare object
+    const taxDataToCompare = {
+      "Federal Withholding": taxDetails["Federal Withholding"],
+      "State Tax Withholding": taxDetails["State Tax Withholding"],
+      "City Tax": taxDetails["City Tax"],
+      "Medicare": taxDetails["Medicare"],
+      "Social Security": taxDetails["Social Security"],
+    };
+
+    // Map filing status to match scraper2.js format
+    const filingStatusMap = {
+      SINGLE: "Single",
+      MARRIED: "Married Filing Jointly",
+      HEAD_OF_HOUSEHOLD: "Head of Household",
+      NONRESIDENT_ALIEN: "Single", // Assuming default to Single
+    };
+    const adjustedFilingStatus = filingStatusMap[filingStatus];
+
+    // Call compareTaxData function
+    const isWithinThreshold = await compareTaxData(
+      salary,
+      adjustedFilingStatus,
+      zipcode,
+      withholding,
+      taxDataToCompare
+    );
+
+    if (isWithinThreshold) {
+      console.log("\nThe tax calculations are within 1.5%.");
+    } else {
+      console.log("\nThe tax calculations are not within 1.5%.");
+    }
 
     return;
   } catch (error) {
@@ -485,13 +529,15 @@ async function main() {
 
     // **Prompt for Withholding**
     let withholdingInput = await askQuestion(
-      "Please enter your additional federal withholding amount (e.g., 10): "
+      "Please enter your additional federal withholding amount (e.g., 4000): "
     );
     let withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
     while (isNaN(withholding) || withholding < 0) {
-      console.log("Invalid withholding. Please enter a non-negative number.");
+      console.log(
+        "Invalid amount. Please enter a non-negative number for the additional withholding."
+      );
       withholdingInput = await askQuestion(
-        "Please enter your additional federal withholding amount (e.g., 10): "
+        "Please enter your additional federal withholding amount (e.g., 4000): "
       );
       withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
     }
@@ -515,14 +561,10 @@ async function main() {
     }
 
     // **Prompt for City**
-    let city = await askQuestion(
-      "Please enter your city (e.g., Hudson Yards): "
-    );
+    let city = await askQuestion("Please enter your city (e.g., New York): ");
     while (!city.trim()) {
       console.log("City cannot be empty. Please enter a valid city.");
-      city = await askQuestion(
-        "Please enter your city (e.g., Hudson Yards): "
-      );
+      city = await askQuestion("Please enter your city (e.g., New York): ");
     }
 
     // **Prompt for Zipcode**

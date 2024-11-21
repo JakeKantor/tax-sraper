@@ -1,25 +1,11 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const readline = require("readline");
 const { setTimeout } = require("timers/promises"); // Import setTimeout for delays
 
 // Enable stealth mode with default configurations
 puppeteer.use(StealthPlugin());
 
-function askQuestion(query) {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) =>
-    rl.question(query, (ans) => {
-      rl.close();
-      resolve(ans);
-    })
-  );
-}
-
+// Function to calculate net pay and return tax data
 async function calculateNetPay(
   salary,
   filingStatus,
@@ -33,12 +19,10 @@ async function calculateNetPay(
     // Adjust salary by subtracting additional withholding
     const adjustedSalary = salary - additionalWithholding;
 
-    // Launch Puppeteer browser with headless: false to see the browser actions
-    browser = await puppeteer.launch({ headless: false });
+    // Launch Puppeteer browser with headless: true
+    browser = await puppeteer.launch({ headless: true });
     page = await browser.newPage();
 
-    // Optional: Capture console logs from the page for debugging
-    page.on("console", (msg) => console.log("PAGE LOG:", msg.text()));
 
     // Set User-Agent
     await page.setUserAgent(
@@ -48,14 +32,11 @@ async function calculateNetPay(
     );
 
     // Navigate to the SmartAsset income tax calculator
-    console.log("Navigating to the SmartAsset income tax calculator...");
     await page.goto("https://smartasset.com/taxes/income-taxes", {
       waitUntil: "networkidle2",
     });
-    console.log("Page loaded.");
 
     // Select Filing Status
-    console.log(`Selecting filing status: ${filingStatus}`);
     await page.waitForSelector('span[id^="select2-chosen-"]', {
       visible: true,
     });
@@ -85,10 +66,7 @@ async function calculateNetPay(
       }
     }, optionText);
 
-    console.log(`Filing status set to: ${filingStatus}`);
-
     // Enter Zip Code
-    console.log(`Entering ZIP code: ${zipcode}`);
     await page.waitForSelector('input[name="ud-current-location-display"]', {
       visible: true,
     });
@@ -104,10 +82,7 @@ async function calculateNetPay(
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
 
-    console.log(`ZIP code set to: ${zipcode}`);
-
     // Enter Adjusted Annual Salary using Native Input Value Setter
-    console.log(`Entering adjusted annual salary: $${adjustedSalary}`);
     await page.waitForSelector('input.dollar', { visible: true });
 
     await page.evaluate((salary) => {
@@ -125,16 +100,14 @@ async function calculateNetPay(
     }, adjustedSalary.toString());
 
     // Add a timeout before pressing "Enter"
-    await setTimeout(500); // Wait for 500 milliseconds
+    await setTimeout(2000); // Wait for 500 milliseconds
     await page.keyboard.press("Enter");
 
     // Wait for the results to load
-    console.log("Calculating taxes...");
     await page.waitForSelector("span.income-after-taxes-next", {
       visible: true,
       timeout: 30000,
     });
-    console.log("Calculation complete.");
 
     const taxData = await page.evaluate(() => {
       const getTextContent = (selector) => {
@@ -187,20 +160,7 @@ async function calculateNetPay(
       return data;
     });
 
-    console.log("\nTax Breakdown:");
-    let index = 1;
-    for (const [taxType, details] of Object.entries(taxData)) {
-      if (taxType === "Net Pay") {
-        console.log(`\nYour adjusted net pay is: $${details.toLocaleString()}`);
-      } else {
-        console.log(
-          `${index}. ${taxType}: $${details.amount.toLocaleString()} (${
-            details.effectiveRate ? details.effectiveRate.toFixed(2) + "%" : ""
-          })`
-        );
-        index++;
-      }
-    }
+    return taxData;
   } catch (error) {
     console.error(
       "An error occurred during the Puppeteer script execution:",
@@ -213,98 +173,86 @@ async function calculateNetPay(
   } finally {
     if (browser) {
       await browser.close();
-      console.log("Browser closed successfully.");
     }
   }
 }
 
-async function main() {
+// Function to compare tax data
+async function compareTaxData(
+  salary,
+  filingStatus,
+  zipcode,
+  additionalWithholding,
+  taxDataToCompare
+) {
   try {
-    console.log("Welcome to the Net Pay Calculator!");
-
-    let salaryInput = await askQuestion(
-      "Please enter your annual salary (e.g., 120000): "
-    );
-    let salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
-    while (isNaN(salary) || salary <= 0) {
-      console.log("Invalid salary. Please enter a positive number.");
-      salaryInput = await askQuestion(
-        "Please enter your annual salary (e.g., 120000): "
-      );
-      salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
-    }
-
-    let zipcode = await askQuestion(
-      "Please enter your ZIP code (e.g., 10001): "
-    );
-    while (!/^\d{5}(-\d{4})?$/.test(zipcode.trim())) {
-      console.log(
-        "Invalid ZIP code. Please enter a 5-digit ZIP code or ZIP+4 format."
-      );
-      zipcode = await askQuestion("Please enter your ZIP code (e.g., 10001): ");
-    }
-
-    console.log("Please select your filing status:");
-    console.log("1. Single");
-    console.log("2. Married Filing Jointly");
-    console.log("3. Married Filing Separately");
-    console.log("4. Head of Household");
-    let filingStatusInput = await askQuestion(
-      "Enter the number corresponding to your filing status: "
-    );
-    let filingStatus = "";
-
-    while (true) {
-      filingStatusInput = filingStatusInput.trim();
-      if (filingStatusInput === "1") {
-        filingStatus = "Single";
-        break;
-      } else if (filingStatusInput === "2") {
-        filingStatus = "Married Filing Jointly";
-        break;
-      } else if (filingStatusInput === "3") {
-        filingStatus = "Married Filing Separately";
-        break;
-      } else if (filingStatusInput === "4") {
-        filingStatus = "Head of Household";
-        break;
-      } else {
-        console.log("Invalid input. Please enter a number between 1 and 4.");
-        filingStatusInput = await askQuestion(
-          "Enter the number corresponding to your filing status: "
-        );
-      }
-    }
-
-    let additionalWithholdingInput = await askQuestion(
-      "Please enter your additional federal withholding amount (e.g., 4000): "
-    );
-    let additionalWithholding = parseFloat(
-      additionalWithholdingInput.replace(/[^0-9.]/g, "")
-    );
-    while (isNaN(additionalWithholding) || additionalWithholding < 0) {
-      console.log(
-        "Invalid amount. Please enter a non-negative number for the additional withholding."
-      );
-      additionalWithholdingInput = await askQuestion(
-        "Please enter your additional federal withholding amount (e.g., 4000): "
-      );
-      additionalWithholding = parseFloat(
-        additionalWithholdingInput.replace(/[^0-9.]/g, "")
-      );
-    }
-
-    console.log("\nCalculating your net pay... Please wait.\n");
-
-    await calculateNetPay(
+    // Get tax data from calculateNetPay
+    const taxData = await calculateNetPay(
       salary,
       filingStatus,
       zipcode,
       additionalWithholding
     );
+
+    // Add Medicare and Social Security from taxDataToCompare to get FICA
+    const ficaFromOther =
+      taxDataToCompare["Medicare"] + taxDataToCompare["Social Security"];
+
+    // Now, we need to compare the categories:
+    // - Federal Withholding
+    // - State Tax Withholding
+    // - City Tax
+    // - FICA
+
+    const categories = [
+      "Federal Withholding",
+      "State Tax Withholding",
+      "City Tax",
+      "FICA",
+    ];
+
+    // Compute percentages for each category from taxData (from calculateNetPay)
+    const percentagesCalculated = {};
+    for (const category of categories) {
+      let amountCalculated;
+      if (category === "FICA") {
+        amountCalculated = taxData["FICA"].amount;
+      } else {
+        amountCalculated = taxData[category].amount;
+      }
+      percentagesCalculated[category] = (amountCalculated / salary) * 100;
+    }
+
+    // Compute percentages for each category from taxDataToCompare
+    const percentagesOther = {};
+    percentagesOther["Federal Withholding"] =
+      (taxDataToCompare["Federal Withholding"] / salary) * 100;
+    percentagesOther["State Tax Withholding"] =
+      (taxDataToCompare["State Tax Withholding"] / salary) * 100;
+    percentagesOther["City Tax"] =
+      (taxDataToCompare["City Tax"] / salary) * 100;
+    percentagesOther["FICA"] = (ficaFromOther / salary) * 100;
+
+    // Compare the percentages
+    let withinThreshold = true;
+
+    for (const category of categories) {
+      const percentCalculated = percentagesCalculated[category];
+      const percentOther = percentagesOther[category];
+
+      const difference = Math.abs(percentCalculated - percentOther);
+
+      if (difference > 1.5) {
+        withinThreshold = false;
+        break;
+      }
+    }
+
+    return withinThreshold;
   } catch (error) {
-    console.error("Failed to calculate net pay:", error);
+    console.error("Error in compareTaxData:", error);
+    throw error;
   }
 }
 
-main();
+module.exports = { compareTaxData };
