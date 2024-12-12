@@ -39,7 +39,6 @@ function askQuestion(query) {
  */
 async function extractTaxValue(page, labels) {
   try {
-    // Attempt to find any of the possible labels
     const taxValue = await page.evaluate((labels) => {
       for (const lbl of labels) {
         const labelElements = Array.from(
@@ -53,7 +52,6 @@ async function extractTaxValue(page, labels) {
             "div.form-control-plaintext"
           );
           if (valueElement) {
-            // Remove $ and commas, then parse to float
             const value = parseFloat(
               valueElement.textContent.replace(/[$,]/g, "")
             );
@@ -61,7 +59,7 @@ async function extractTaxValue(page, labels) {
           }
         }
       }
-      return 0; // Return 0 if none of the labels are found
+      return 0;
     }, labels);
 
     return taxValue;
@@ -71,18 +69,6 @@ async function extractTaxValue(page, labels) {
   }
 }
 
-/**
- * Calculates net pay using PaycheckCity's salary calculator.
- *
- * @param {number} salary - The annual salary amount.
- * @param {number} withholding - The additional federal withholding amount.
- * @param {string} state - The U.S. state (case-insensitive, spaces will be replaced with hyphens).
- * @param {string} address - The work address.
- * @param {string} city - The city.
- * @param {string} zipcode - The ZIP code.
- * @param {string} filingStatus - The federal filing status.
- * @returns {Promise<void>} - Prints the calculated net pay and detailed tax information.
- */
 async function calculateNetPay(
   salary,
   withholding,
@@ -106,49 +92,26 @@ async function calculateNetPay(
   const blockedDomains = [
     "ads.example.com",
     "doubleclick.net",
-    // Add other ad domains identified
   ];
 
-  // Process the state input: lowercase and replace spaces with hyphens
   const processedState = state.toLowerCase().replace(/\s+/g, "-");
 
   let browser;
   let page;
 
   try {
-    // Connect Puppeteer to the scraping browser endpoint
     browser = await puppeteer.connect({
       browserWSEndpoint:
         "wss://brd-customer-hl_c86b85e7-zone-scraper_tax:7e3hc47mg10h@brd.superproxy.io:9222",
     });
 
-  // try {
-  // browser = await puppeteer.launch({
-  //   headless: false, // Use the latest headless mode
-  //   slowMo: 50, // Slows down Puppeteer operations by 50ms to mimic human interactions
-  //   defaultViewport: { width: 1920, height: 1080 }, // Set viewport to a common resolution
-  //   args: [
-  //     "--no-sandbox",
-  //     "--disable-setuid-sandbox",
-  //     "--disable-dev-shm-usage",
-  //     "--disable-accelerated-2d-canvas",
-  //     "--no-first-run",
-  //     "--no-zygote",
-  //     "--single-process", // <- this one doesn't work in Windows
-  //     "--disable-gpu",
-  //   ],
-  // });
-
     page = await browser.newPage();
-
-    // Set User-Agent only if needed
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/112.0.0.0 Safari/537.36"
     );
 
-    // Enable Request Interception for Blocking Ads
     await page.setRequestInterception(true);
 
     page.on("request", (request) => {
@@ -166,15 +129,11 @@ async function calculateNetPay(
     });
 
     console.log("Connected to the remote browser and ready to navigate.");
-
-    // **Navigate to the Target Website**
-    console.log("Navigating to the website...");
     await page.goto("https://www.paycheckcity.com/calculator/salary/", {
       waitUntil: "networkidle2",
     });
     console.log("Homepage loaded.");
 
-    // **Click the "Select state" button**
     const selectStateButtonSelector =
       'a.btn-text.underline[href="#select-state-calculator"]';
     await page.waitForSelector(selectStateButtonSelector, {
@@ -184,8 +143,7 @@ async function calculateNetPay(
     await page.click(selectStateButtonSelector);
     console.log('Clicked the "Select state" button.');
 
-    // **Handle the Ad Popup (if it appears)**
-    const adCloseButtonSelector = ".ad-close-button"; // Replace with actual selector
+    const adCloseButtonSelector = ".ad-close-button";
     try {
       await page.waitForSelector(adCloseButtonSelector, {
         visible: true,
@@ -197,7 +155,6 @@ async function calculateNetPay(
       console.log("Ad close button not found or ad did not appear.");
     }
 
-    // **Wait for the State List to Appear**
     const stateListSelector = "ol.state-list-module--state-list--aaadc";
     await page.waitForSelector(stateListSelector, {
       visible: true,
@@ -205,7 +162,6 @@ async function calculateNetPay(
     });
     console.log("State list is now visible.");
 
-    // **Select the Specified State from the State List**
     const stateSelector = `a.btn-text.state-list-module--state-link--7b4b7[href="/calculator/salary/${processedState}"]`;
     await page.waitForSelector(stateSelector, {
       visible: true,
@@ -214,37 +170,32 @@ async function calculateNetPay(
     await page.click(stateSelector);
     console.log(`Selected "${state}" from the state list.`);
 
-    // **Inject Custom CSS to Hide Any Remaining Ads**
     const hideAdCSS = `
       .ad-container,
       #ad-modal,
-      .popup-ad
-      {
+      .popup-ad {
         display: none !important;
       }
     `;
     await page.addStyleTag({ content: hideAdCSS });
     console.log("Injected custom CSS to hide any remaining ad elements.");
 
-    // **Wait for Address Fields with Conditional Handling**
     const address1Selector = "#stateInfo\\.local\\.address1";
     const citySelector = "#stateInfo\\.local\\.city";
     const zipSelector = "#stateInfo\\.local\\.zip";
 
-    // Function to check if a selector exists
     async function checkSelector(selector) {
       try {
         await page.waitForSelector(selector, {
           visible: true,
           timeout: 2000,
-        }); // 2 seconds timeout
+        });
         return true;
       } catch (error) {
         return false;
       }
     }
 
-    // Check if address fields are present
     const addressExists = await checkSelector(address1Selector);
     const cityExists = await checkSelector(citySelector);
     const zipExists = await checkSelector(zipSelector);
@@ -252,7 +203,6 @@ async function calculateNetPay(
     if (addressExists && cityExists && zipExists) {
       console.log("Address fields are present. Proceeding to fill them.");
 
-      // **Enter Work Address**
       await page.evaluate(() => {
         const addressInput = document.getElementById("stateInfo.local.address1");
         if (addressInput) addressInput.value = "";
@@ -260,7 +210,6 @@ async function calculateNetPay(
       await page.type(address1Selector, address, { delay: 100 });
       console.log(`Entered Work Address: "${address}".`);
 
-      // **Enter City**
       await page.evaluate(() => {
         const cityInput = document.getElementById("stateInfo.local.city");
         if (cityInput) cityInput.value = "";
@@ -268,7 +217,6 @@ async function calculateNetPay(
       await page.type(citySelector, city, { delay: 100 });
       console.log(`Entered City: "${city}".`);
 
-      // **Enter Zip Code**
       await page.evaluate(() => {
         const zipInput = document.getElementById("stateInfo.local.zip");
         if (zipInput) zipInput.value = "";
@@ -276,38 +224,28 @@ async function calculateNetPay(
       await page.type(zipSelector, zipcode, { delay: 100 });
       console.log(`Entered Zip Code: "${zipcode}".`);
 
-      // **Set State Filing Status if Applicable**
       const stateFilingStatusSelector = "#stateInfo\\.parms\\.FILINGSTATUS";
-      const stateFilingStatusExists = await checkSelector(
-        stateFilingStatusSelector
-      );
+      const stateFilingStatusExists = await checkSelector(stateFilingStatusSelector);
 
       if (stateFilingStatusExists) {
-        // Map federal filing status to state filing status internally
         let stateFilingStatus;
         if (filingStatus === "MARRIED") {
           stateFilingStatus = "M";
         } else if (filingStatus === "MARRIED_USE_SINGLE_RATE") {
           stateFilingStatus = "MH";
         } else {
-          // For SINGLE, HEAD_OF_HOUSEHOLD, NONRESIDENT_ALIEN, etc.
           stateFilingStatus = "S";
         }
 
         await page.select(stateFilingStatusSelector, stateFilingStatus);
         console.log(`Set state filing status to "${stateFilingStatus}".`);
       } else {
-        console.log(
-          "State filing status selector not found. Skipping state filing status."
-        );
+        console.log("State filing status selector not found. Skipping state filing status.");
       }
     } else {
-      console.log(
-        "Address fields not found. Skipping address, city, and ZIP code entry."
-      );
+      console.log("Address fields not found. Skipping address, city, and ZIP code entry.");
     }
 
-    // **Set Salary Amount**
     const grossPaySelector = "#grossPay";
     await page.waitForSelector(grossPaySelector, {
       visible: true,
@@ -320,7 +258,6 @@ async function calculateNetPay(
     await page.type(grossPaySelector, salary.toString(), { delay: 100 });
     console.log(`Entered salary amount: $${salary}.`);
 
-    // **Select Pay Frequency as Annual**
     const payFrequencySelector = "#payFrequency";
     await page.waitForSelector(payFrequencySelector, {
       visible: true,
@@ -329,7 +266,6 @@ async function calculateNetPay(
     await page.select(payFrequencySelector, "ANNUAL");
     console.log("Selected pay frequency as Annual.");
 
-    // **Check W4 2020 Checkbox if Unchecked**
     const w42020Selector = "#w42020";
     await page.waitForSelector(w42020Selector, {
       visible: true,
@@ -343,7 +279,6 @@ async function calculateNetPay(
       console.log("W4 2020 checkbox is already checked.");
     }
 
-    // **Set Federal Filing Status**
     const filingStatusSelector = "#federalFilingStatusType2020";
     await page.waitForSelector(filingStatusSelector, {
       visible: true,
@@ -352,7 +287,6 @@ async function calculateNetPay(
     await page.select(filingStatusSelector, filingStatus);
     console.log(`Set federal filing status to "${filingStatus}".`);
 
-    // **Click the Calculate Button**
     const calculateButtonSelector = 'button[type="submit"].btn.btn-primary';
     await page.waitForSelector(calculateButtonSelector, {
       visible: true,
@@ -361,7 +295,6 @@ async function calculateNetPay(
     await page.click(calculateButtonSelector);
     console.log("Clicked the Calculate button.");
 
-    // **Wait for the Results to Load**
     const netPayLabelSelector = "strong.form-label";
     await page.waitForFunction(
       (selector) => {
@@ -370,24 +303,20 @@ async function calculateNetPay(
           (el) => el.innerText.trim() === "Take home pay (net pay)"
         );
       },
-      { timeout: 100000 },
+      { timeout: 120000 },//100000
       netPayLabelSelector
     );
     console.log("Net Pay label found.");
 
-    // **Extract and Return Net Pay and Tax Details**
-    // Define the tax categories and their corresponding labels (including possible variations)
     const taxCategories = [
       { name: "Net Pay", labels: ["Take home pay (net pay)"] },
       { name: "Federal Withholding", labels: ["Federal Withholding"] },
       { name: "State Tax Withholding", labels: ["State Tax Withholding"] },
-      { name: "City Tax", labels: ["City Tax"] }, // You may need to add state-specific labels
+      { name: "City Tax", labels: ["City Tax"] },
       { name: "Medicare", labels: ["Medicare"] },
       { name: "Social Security", labels: ["Social Security"] },
       { name: "State Disability Insurance (SDI)", labels: ["State Disability Insurance (SDI)"] },
       { name: "Family Leave Insurance (FLI)", labels: ["Family Leave Insurance (FLI)"] },
-
-      // Add more categories or label variations as needed
     ];
 
     const taxDetails = {};
@@ -397,11 +326,9 @@ async function calculateNetPay(
       taxDetails[category.name] = value;
     }
 
-    // Handle "Other" taxes by extracting any additional taxes not listed above
     const otherTaxLabels = [
       "State Disability Insurance (SDI)",
       "Family Leave Insurance (FLI)",
-      // Add other "Other" tax labels here if known
     ];
 
     let otherTaxes = 0;
@@ -412,7 +339,6 @@ async function calculateNetPay(
 
     taxDetails["Other"] = otherTaxes;
 
-    // Calculate percentages
     const percentages = {};
     for (const [key, value] of Object.entries(taxDetails)) {
       if (key !== "Net Pay") {
@@ -420,7 +346,6 @@ async function calculateNetPay(
       }
     }
 
-    // Ensure all taxDetails have numerical values before calling toLocaleString
     for (const key of Object.keys(taxDetails)) {
       if (typeof taxDetails[key] !== "number" || isNaN(taxDetails[key])) {
         taxDetails[key] = 0;
@@ -430,38 +355,7 @@ async function calculateNetPay(
       }
     }
 
-    // Print detailed tax information
-    console.log("\nDetailed Tax Information:");
-    console.log(
-      `1. Federal Withholding: $${taxDetails[
-        "Federal Withholding"
-      ].toLocaleString()} (${percentages["Federal Withholding"]})`
-    );
-    console.log(
-      `2. State Tax Withholding: $${taxDetails[
-        "State Tax Withholding"
-      ].toLocaleString()} (${percentages["State Tax Withholding"]})`
-    );
-    console.log(
-      `3. City Tax: $${taxDetails["City Tax"].toLocaleString()} (${percentages["City Tax"]})`
-    );
-    console.log(
-      `4. Medicare: $${taxDetails["Medicare"].toLocaleString()} (${percentages["Medicare"]})`
-    );
-    console.log(
-      `5. Social Security: $${taxDetails[
-        "Social Security"
-      ].toLocaleString()} (${percentages["Social Security"]})`
-    );
-    console.log(
-      `6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`
-    );
-
-    // Add Medicare and Social Security to get FICA
-    const ficaFromOther =
-      taxDetails["Medicare"] + taxDetails["Social Security"];
-
-    // Prepare taxDataToCompare object
+    // Prepare taxDataToCompare object before calling compareTaxData
     const taxDataToCompare = {
       "Federal Withholding": taxDetails["Federal Withholding"],
       "State Tax Withholding": taxDetails["State Tax Withholding"],
@@ -470,22 +364,82 @@ async function calculateNetPay(
       "Social Security": taxDetails["Social Security"],
     };
 
-    // Map filing status to match scraper2.js format
     const filingStatusMap = {
       SINGLE: "Single",
       MARRIED: "Married Filing Jointly",
       HEAD_OF_HOUSEHOLD: "Head of Household",
-      NONRESIDENT_ALIEN: "Single", // Assuming default to Single
+      NONRESIDENT_ALIEN: "Single",
     };
     const adjustedFilingStatus = filingStatusMap[filingStatus];
 
-    // Call compareTaxData function
-    const isWithinThreshold = await compareTaxData(
+    // Get isWithinThreshold and taxData from scraper2
+    const { isWithinThreshold, taxData } = await compareTaxData(
       salary,
       adjustedFilingStatus,
       zipcode,
       withholding,
       taxDataToCompare
+    );
+
+    // Fill in zero values from taxData if available
+    const categoriesToCheck = ["Federal Withholding", "State Tax Withholding", "City Tax", "Medicare", "Social Security"];
+    for (const category of categoriesToCheck) {
+      if (taxDetails[category] === 0) {
+        if (category === "Medicare" || category === "Social Security") {
+          // scraper2 gives only FICA total. If we have it, split proportionally:
+          // Social Security: 6.2% of wages, Medicare: 1.45%, total 7.65%
+          if (taxData["FICA"] && taxData["FICA"].amount > 0) {
+            const ficaAmount = taxData["FICA"].amount;
+            const totalFicaRate = 7.65;
+            const ssRatio = 6.2 / totalFicaRate;
+            const medRatio = 1.45 / totalFicaRate;
+
+            // If Medicare is zero, fill from FICA
+            if (taxDetails["Medicare"] === 0) {
+              taxDetails["Medicare"] = ficaAmount * medRatio;
+              console.log(`\nNote: Medicare was 0%. Using scraper2's FICA to estimate Medicare.`);
+            }
+            // If Social Security is zero, fill from FICA
+            if (taxDetails["Social Security"] === 0) {
+              taxDetails["Social Security"] = ficaAmount * ssRatio;
+              console.log(`\nNote: Social Security was 0%. Using scraper2's FICA to estimate Social Security.`);
+            }
+          }
+        } else {
+          if (taxData[category] && taxData[category].amount > 0) {
+            console.log(`\nNote: ${category} was 0%. Using scraper2 as reference.`);
+            taxDetails[category] = taxData[category].amount;
+          }
+        }
+      }
+    }
+
+    // Recalculate percentages after filling values
+    for (const [key, value] of Object.entries(taxDetails)) {
+      if (key !== "Net Pay") {
+        percentages[key] = ((value / salary) * 100).toFixed(2) + "%";
+      }
+    }
+
+    // Print detailed tax information after filling in missing values
+    console.log("\nDetailed Tax Information:");
+    console.log(
+      `1. Federal Withholding: $${taxDetails["Federal Withholding"].toLocaleString()} (${percentages["Federal Withholding"]})`
+    );
+    console.log(
+      `2. State Tax Withholding: $${taxDetails["State Tax Withholding"].toLocaleString()} (${percentages["State Tax Withholding"]})`
+    );
+    console.log(
+      `3. City Tax: $${taxDetails["City Tax"].toLocaleString()} (${percentages["City Tax"]})`
+    );
+    console.log(
+      `4. Medicare: $${taxDetails["Medicare"].toLocaleString()} (${percentages["Medicare"]})`
+    );
+    console.log(
+      `5. Social Security: $${taxDetails["Social Security"].toLocaleString()} (${percentages["Social Security"]})`
+    );
+    console.log(
+      `6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`
     );
 
     if (isWithinThreshold) {
@@ -519,14 +473,10 @@ async function calculateNetPay(
   }
 }
 
-/**
- * Main function to execute the script.
- */
 async function main() {
   try {
     console.log("Welcome to the Net Pay Calculator!");
 
-    // **Prompt for Salary**
     let salaryInput = await askQuestion(
       "Please enter your annual salary (e.g., 120000): "
     );
@@ -539,7 +489,6 @@ async function main() {
       salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
     }
 
-    // **Prompt for Withholding**
     let withholdingInput = await askQuestion(
       "Please enter your additional federal withholding amount (e.g., 4000): "
     );
@@ -554,14 +503,12 @@ async function main() {
       withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
     }
 
-    // **Prompt for State**
     let state = await askQuestion("Please enter your state (e.g., New York): ");
     while (!state.trim()) {
       console.log("State cannot be empty. Please enter a valid state.");
       state = await askQuestion("Please enter your state (e.g., New York): ");
     }
 
-    // **Prompt for Address**
     let address = await askQuestion(
       "Please enter your work address (e.g., 35 Hudson Yards): "
     );
@@ -572,14 +519,12 @@ async function main() {
       );
     }
 
-    // **Prompt for City**
     let city = await askQuestion("Please enter your city (e.g., New York): ");
     while (!city.trim()) {
       console.log("City cannot be empty. Please enter a valid city.");
       city = await askQuestion("Please enter your city (e.g., New York): ");
     }
 
-    // **Prompt for Zipcode**
     let zipcode = await askQuestion(
       "Please enter your ZIP code (e.g., 10001): "
     );
@@ -592,7 +537,6 @@ async function main() {
       );
     }
 
-    // **Prompt for Filing Status**
     console.log("Please select your filing status:");
     console.log("1. Single or Married Filing Separately");
     console.log("2. Married Filing Jointly");
@@ -628,18 +572,17 @@ async function main() {
     console.log("\nCalculating your net pay... Please wait.\n");
 
     await calculateNetPay(
-      salary, // salary
-      withholding, // withholding
-      state, // state
-      address, // address
-      city, // city
-      zipcode, // zipcode
-      filingStatus // federal filingStatus
+      salary,
+      withholding,
+      state,
+      address,
+      city,
+      zipcode,
+      filingStatus
     );
   } catch (error) {
     console.error("Failed to calculate net pay:", error);
   }
 }
 
-// Execute the main function
 main();

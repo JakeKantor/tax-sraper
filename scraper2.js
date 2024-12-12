@@ -23,7 +23,6 @@ async function calculateNetPay(
     browser = await puppeteer.launch({ headless: true });
     page = await browser.newPage();
 
-
     // Set User-Agent
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -55,9 +54,7 @@ async function calculateNetPay(
     const optionText = filingStatusMap[filingStatus];
 
     await page.evaluate((optionText) => {
-      const options = Array.from(
-        document.querySelectorAll("ul.select2-results li")
-      );
+      const options = Array.from(document.querySelectorAll("ul.select2-results li"));
       const desiredOption = options.find(
         (el) => el.textContent.trim() === optionText
       );
@@ -71,8 +68,7 @@ async function calculateNetPay(
       visible: true,
     });
     await page.evaluate(() => {
-      document.querySelector('input[name="ud-current-location-display"]').value =
-        "";
+      document.querySelector('input[name="ud-current-location-display"]').value = "";
     });
     await page.type('input[name="ud-current-location-display"]', zipcode, {
       delay: 100,
@@ -100,7 +96,7 @@ async function calculateNetPay(
     }, adjustedSalary.toString());
 
     // Add a timeout before pressing "Enter"
-    await setTimeout(2000); // Wait for 500 milliseconds
+    await setTimeout(2000);
     await page.keyboard.press("Enter");
 
     // Wait for the results to load
@@ -127,35 +123,25 @@ async function calculateNetPay(
 
       data["Federal Withholding"] = {
         amount: parseCurrency(getTextContent("span.federal-amount-next")),
-        effectiveRate: parsePercentage(
-          getTextContent("span.federal-effective-rate")
-        ),
+        effectiveRate: parsePercentage(getTextContent("span.federal-effective-rate")),
       };
 
       data["State Tax Withholding"] = {
         amount: parseCurrency(getTextContent("span.state-amount-next")),
-        effectiveRate: parsePercentage(
-          getTextContent("span.state-effective-rate")
-        ),
+        effectiveRate: parsePercentage(getTextContent("span.state-effective-rate")),
       };
 
       data["City Tax"] = {
         amount: parseCurrency(getTextContent("span.local-amount-next")),
-        effectiveRate: parsePercentage(
-          getTextContent("span.local-effective-rate")
-        ),
+        effectiveRate: parsePercentage(getTextContent("span.local-effective-rate")),
       };
 
       data["FICA"] = {
         amount: parseCurrency(getTextContent("span.fica-amount-next")),
-        effectiveRate: parsePercentage(
-          getTextContent("span.fica-effective-rate")
-        ),
+        effectiveRate: parsePercentage(getTextContent("span.fica-effective-rate")),
       };
 
-      data["Net Pay"] = parseCurrency(
-        getTextContent("span.income-after-taxes-next")
-      );
+      data["Net Pay"] = parseCurrency(getTextContent("span.income-after-taxes-next"));
 
       return data;
     });
@@ -177,7 +163,7 @@ async function calculateNetPay(
   }
 }
 
-// Function to compare tax data
+// Function to compare tax data and return both the boolean and the tax data
 async function compareTaxData(
   salary,
   filingStatus,
@@ -198,18 +184,7 @@ async function compareTaxData(
     const ficaFromOther =
       taxDataToCompare["Medicare"] + taxDataToCompare["Social Security"];
 
-    // Now, we need to compare the categories:
-    // - Federal Withholding
-    // - State Tax Withholding
-    // - City Tax
-    // - FICA
-
-    const categories = [
-      "Federal Withholding",
-      "State Tax Withholding",
-      "City Tax",
-      "FICA",
-    ];
+    const categories = ["Federal Withholding", "State Tax Withholding", "City Tax", "FICA"];
 
     // Compute percentages for each category from taxData (from calculateNetPay)
     const percentagesCalculated = {};
@@ -235,20 +210,19 @@ async function compareTaxData(
 
     // Compare the percentages
     let withinThreshold = true;
-
     for (const category of categories) {
       const percentCalculated = percentagesCalculated[category];
       const percentOther = percentagesOther[category];
 
       const difference = Math.abs(percentCalculated - percentOther);
-
       if (difference > 1.5) {
         withinThreshold = false;
         break;
       }
     }
 
-    return withinThreshold;
+    // Return both the boolean and the taxData so scraper.js can use it
+    return { isWithinThreshold: withinThreshold, taxData };
   } catch (error) {
     console.error("Error in compareTaxData:", error);
     throw error;
