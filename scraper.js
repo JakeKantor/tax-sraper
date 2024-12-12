@@ -122,6 +122,23 @@ async function calculateNetPay(
         "wss://brd-customer-hl_c86b85e7-zone-scraper_tax:7e3hc47mg10h@brd.superproxy.io:9222",
     });
 
+  // try {
+  // browser = await puppeteer.launch({
+  //   headless: false, // Use the latest headless mode
+  //   slowMo: 50, // Slows down Puppeteer operations by 50ms to mimic human interactions
+  //   defaultViewport: { width: 1920, height: 1080 }, // Set viewport to a common resolution
+  //   args: [
+  //     "--no-sandbox",
+  //     "--disable-setuid-sandbox",
+  //     "--disable-dev-shm-usage",
+  //     "--disable-accelerated-2d-canvas",
+  //     "--no-first-run",
+  //     "--no-zygote",
+  //     "--single-process", // <- this one doesn't work in Windows
+  //     "--disable-gpu",
+  //   ],
+  // });
+
     page = await browser.newPage();
 
     // Set User-Agent only if needed
@@ -353,7 +370,7 @@ async function calculateNetPay(
           (el) => el.innerText.trim() === "Take home pay (net pay)"
         );
       },
-      { timeout: 60000 },
+      { timeout: 100000 },
       netPayLabelSelector
     );
     console.log("Net Pay label found.");
@@ -363,18 +380,13 @@ async function calculateNetPay(
     const taxCategories = [
       { name: "Net Pay", labels: ["Take home pay (net pay)"] },
       { name: "Federal Withholding", labels: ["Federal Withholding"] },
-      { name: "State Tax Withholding", labels: ["State Withholding"] },
-      { name: "City Tax", labels: ["Local Withholding"] },
+      { name: "State Tax Withholding", labels: ["State Tax Withholding"] },
+      { name: "City Tax", labels: ["City Tax"] }, // You may need to add state-specific labels
       { name: "Medicare", labels: ["Medicare"] },
       { name: "Social Security", labels: ["Social Security"] },
-      {
-        name: "State Disability Insurance (SDI)",
-        labels: ["State Disability Insurance (SDI)"],
-      },
-      {
-        name: "Family Leave Insurance (FLI)",
-        labels: ["Family Leave Insurance (FLI)"],
-      },
+      { name: "State Disability Insurance (SDI)", labels: ["State Disability Insurance (SDI)"] },
+      { name: "Family Leave Insurance (FLI)", labels: ["Family Leave Insurance (FLI)"] },
+
       // Add more categories or label variations as needed
     ];
 
