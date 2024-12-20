@@ -3,40 +3,10 @@ const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const path = require("path");
 const fs = require("fs");
 const readline = require("readline");
-
-// Import compareTaxData from scraper2.js
 const { compareTaxData } = require("./scraper2.js");
 
-// Enable stealth mode with default configurations
 puppeteer.use(StealthPlugin());
 
-/**
- * Prompts the user for input via the console.
- *
- * @param {string} query - The question to display to the user.
- * @returns {Promise<string>} - The user's input.
- */
-function askQuestion(query) {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) =>
-    rl.question(query, (ans) => {
-      rl.close();
-      resolve(ans);
-    })
-  );
-}
-
-/**
- * Extracts a single tax value based on its label.
- *
- * @param {object} page - The Puppeteer page instance.
- * @param {string[]} labels - An array of possible label variations.
- * @returns {Promise<number>} - The extracted tax amount or 0 if not found.
- */
 async function extractTaxValue(page, labels) {
   try {
     const taxValue = await page.evaluate((labels) => {
@@ -100,9 +70,20 @@ async function calculateNetPay(
   let page;
 
   try {
-    browser = await puppeteer.connect({
-      browserWSEndpoint:
-        "wss://brd-customer-hl_c86b85e7-zone-scraper_tax:7e3hc47mg10h@brd.superproxy.io:9222",
+    // Launch a local browser instance with options to simulate a real browser
+    browser = await puppeteer.launch({
+      headless: "new",
+      defaultViewport: null,
+      devtools: false,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-infobars',
+        '--window-position=0,0',
+        '--window-size=1920,1080',
+        '--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"'
+      ]
     });
 
     page = await browser.newPage();
@@ -128,7 +109,7 @@ async function calculateNetPay(
       }
     });
 
-    console.log("Connected to the remote browser and ready to navigate.");
+    console.log("Launched a local browser instance and ready to navigate.");
     await page.goto("https://www.paycheckcity.com/calculator/salary/", {
       waitUntil: "networkidle2",
     });
@@ -207,22 +188,25 @@ async function calculateNetPay(
         const addressInput = document.getElementById("stateInfo.local.address1");
         if (addressInput) addressInput.value = "";
       });
-      await page.type(address1Selector, address, { delay: 100 });
-      console.log(`Entered Work Address: "${address}".`);
+      // Add a leading space before typing
+      await page.type(address1Selector, " " + address, { delay: 100 });
+      console.log(`Entered Work Address: " ${address}".`);
 
       await page.evaluate(() => {
         const cityInput = document.getElementById("stateInfo.local.city");
         if (cityInput) cityInput.value = "";
       });
-      await page.type(citySelector, city, { delay: 100 });
-      console.log(`Entered City: "${city}".`);
+      // Add a leading space before typing city
+      await page.type(citySelector, " " + city, { delay: 100 });
+      console.log(`Entered City: " ${city}".`);
 
       await page.evaluate(() => {
         const zipInput = document.getElementById("stateInfo.local.zip");
         if (zipInput) zipInput.value = "";
       });
-      await page.type(zipSelector, zipcode, { delay: 100 });
-      console.log(`Entered Zip Code: "${zipcode}".`);
+      // Add a leading space before typing ZIP
+      await page.type(zipSelector, " " + zipcode, { delay: 100 });
+      console.log(`Entered Zip Code: " ${zipcode}".`);
 
       const stateFilingStatusSelector = "#stateInfo\\.parms\\.FILINGSTATUS";
       const stateFilingStatusExists = await checkSelector(stateFilingStatusSelector);
@@ -303,7 +287,7 @@ async function calculateNetPay(
           (el) => el.innerText.trim() === "Take home pay (net pay)"
         );
       },
-      { timeout: 120000 },//100000
+      { timeout: 120000 },
       netPayLabelSelector
     );
     console.log("Net Pay label found.");
@@ -372,7 +356,6 @@ async function calculateNetPay(
     };
     const adjustedFilingStatus = filingStatusMap[filingStatus];
 
-    // Get isWithinThreshold and taxData from scraper2
     const { isWithinThreshold, taxData } = await compareTaxData(
       salary,
       adjustedFilingStatus,
@@ -386,20 +369,16 @@ async function calculateNetPay(
     for (const category of categoriesToCheck) {
       if (taxDetails[category] === 0) {
         if (category === "Medicare" || category === "Social Security") {
-          // scraper2 gives only FICA total. If we have it, split proportionally:
-          // Social Security: 6.2% of wages, Medicare: 1.45%, total 7.65%
           if (taxData["FICA"] && taxData["FICA"].amount > 0) {
             const ficaAmount = taxData["FICA"].amount;
             const totalFicaRate = 7.65;
             const ssRatio = 6.2 / totalFicaRate;
             const medRatio = 1.45 / totalFicaRate;
 
-            // If Medicare is zero, fill from FICA
             if (taxDetails["Medicare"] === 0) {
               taxDetails["Medicare"] = ficaAmount * medRatio;
               console.log(`\nNote: Medicare was 0%. Using scraper2's FICA to estimate Medicare.`);
             }
-            // If Social Security is zero, fill from FICA
             if (taxDetails["Social Security"] === 0) {
               taxDetails["Social Security"] = ficaAmount * ssRatio;
               console.log(`\nNote: Social Security was 0%. Using scraper2's FICA to estimate Social Security.`);
@@ -421,7 +400,6 @@ async function calculateNetPay(
       }
     }
 
-    // Print detailed tax information after filling in missing values
     console.log("\nDetailed Tax Information:");
     console.log(
       `1. Federal Withholding: $${taxDetails["Federal Withholding"].toLocaleString()} (${percentages["Federal Withholding"]})`
@@ -464,7 +442,7 @@ async function calculateNetPay(
     if (browser) {
       await browser.close();
     }
-    throw error; // Re-throw the error after cleanup
+    throw error;
   } finally {
     if (browser) {
       await browser.close();
@@ -474,115 +452,36 @@ async function calculateNetPay(
 }
 
 async function main() {
-  try {
-    console.log("Welcome to the Net Pay Calculator!");
+  // Hardcoded test parameters
+  const salary = 65000;
+  const withholding = 0;
+  const state = "New York";
+  const address = "35 Hudson Yards";
+  const city = "New York City";
+  const zipcode = "10001";
+  const filingStatus = "SINGLE";  // Options: "SINGLE", "MARRIED", "HEAD_OF_HOUSEHOLD", "NONRESIDENT_ALIEN"
 
-    let salaryInput = await askQuestion(
-      "Please enter your annual salary (e.g., 120000): "
-    );
-    let salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
-    while (isNaN(salary) || salary <= 0) {
-      console.log("Invalid salary. Please enter a positive number.");
-      salaryInput = await askQuestion(
-        "Please enter your annual salary (e.g., 120000): "
-      );
-      salary = parseFloat(salaryInput.replace(/[^0-9.]/g, ""));
-    }
+  console.log("Welcome to the Net Pay Calculator!");
+  console.log("Using hardcoded test parameters...\n");
+  console.log(`Salary: ${salary}`);
+  console.log(`Additional Withholding: ${withholding}`);
+  console.log(`State: ${state}`);
+  console.log(`Address: ${address}`);
+  console.log(`City: ${city}`);
+  console.log(`ZIP Code: ${zipcode}`);
+  console.log(`Filing Status: ${filingStatus}`);
 
-    let withholdingInput = await askQuestion(
-      "Please enter your additional federal withholding amount (e.g., 4000): "
-    );
-    let withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
-    while (isNaN(withholding) || withholding < 0) {
-      console.log(
-        "Invalid amount. Please enter a non-negative number for the additional withholding."
-      );
-      withholdingInput = await askQuestion(
-        "Please enter your additional federal withholding amount (e.g., 4000): "
-      );
-      withholding = parseFloat(withholdingInput.replace(/[^0-9.]/g, ""));
-    }
+  console.log("\nCalculating your net pay... Please wait.\n");
 
-    let state = await askQuestion("Please enter your state (e.g., New York): ");
-    while (!state.trim()) {
-      console.log("State cannot be empty. Please enter a valid state.");
-      state = await askQuestion("Please enter your state (e.g., New York): ");
-    }
-
-    let address = await askQuestion(
-      "Please enter your work address (e.g., 35 Hudson Yards): "
-    );
-    while (!address.trim()) {
-      console.log("Address cannot be empty. Please enter a valid address.");
-      address = await askQuestion(
-        "Please enter your work address (e.g., 35 Hudson Yards): "
-      );
-    }
-
-    let city = await askQuestion("Please enter your city (e.g., New York): ");
-    while (!city.trim()) {
-      console.log("City cannot be empty. Please enter a valid city.");
-      city = await askQuestion("Please enter your city (e.g., New York): ");
-    }
-
-    let zipcode = await askQuestion(
-      "Please enter your ZIP code (e.g., 10001): "
-    );
-    while (!/^\d{5}(-\d{4})?$/.test(zipcode.trim())) {
-      console.log(
-        "Invalid ZIP code. Please enter a 5-digit ZIP code or ZIP+4 format."
-      );
-      zipcode = await askQuestion(
-        "Please enter your ZIP code (e.g., 10001): "
-      );
-    }
-
-    console.log("Please select your filing status:");
-    console.log("1. Single or Married Filing Separately");
-    console.log("2. Married Filing Jointly");
-    console.log("3. Head of Household");
-    console.log("4. Nonresident Alien");
-    let filingStatusInput = await askQuestion(
-      "Enter the number corresponding to your filing status: "
-    );
-    let filingStatus = "";
-
-    while (true) {
-      filingStatusInput = filingStatusInput.trim();
-      if (filingStatusInput === "1") {
-        filingStatus = "SINGLE";
-        break;
-      } else if (filingStatusInput === "2") {
-        filingStatus = "MARRIED";
-        break;
-      } else if (filingStatusInput === "3") {
-        filingStatus = "HEAD_OF_HOUSEHOLD";
-        break;
-      } else if (filingStatusInput === "4") {
-        filingStatus = "NONRESIDENT_ALIEN";
-        break;
-      } else {
-        console.log("Invalid input. Please enter a number between 1 and 4.");
-        filingStatusInput = await askQuestion(
-          "Enter the number corresponding to your filing status: "
-        );
-      }
-    }
-
-    console.log("\nCalculating your net pay... Please wait.\n");
-
-    await calculateNetPay(
-      salary,
-      withholding,
-      state,
-      address,
-      city,
-      zipcode,
-      filingStatus
-    );
-  } catch (error) {
-    console.error("Failed to calculate net pay:", error);
-  }
+  await calculateNetPay(
+    salary,
+    withholding,
+    state,
+    address,
+    city,
+    zipcode,
+    filingStatus
+  );
 }
 
 main();
