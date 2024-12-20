@@ -305,23 +305,11 @@ async function calculateNetPay(
 
     const taxDetails = {};
 
+    // Extract each tax separately, including SDI and FLI
     for (const category of taxCategories) {
       const value = await extractTaxValue(page, category.labels);
       taxDetails[category.name] = value;
     }
-
-    const otherTaxLabels = [
-      "State Disability Insurance (SDI)",
-      "Family Leave Insurance (FLI)",
-    ];
-
-    let otherTaxes = 0;
-    for (const label of otherTaxLabels) {
-      const value = await extractTaxValue(page, [label]);
-      otherTaxes += value;
-    }
-
-    taxDetails["Other"] = otherTaxes;
 
     const percentages = {};
     for (const [key, value] of Object.entries(taxDetails)) {
@@ -364,7 +352,7 @@ async function calculateNetPay(
       taxDataToCompare
     );
 
-    // Fill in zero values from taxData if available
+    // Fill in zero values from taxData if available, if needed
     const categoriesToCheck = ["Federal Withholding", "State Tax Withholding", "City Tax", "Medicare", "Social Security"];
     for (const category of categoriesToCheck) {
       if (taxDetails[category] === 0) {
@@ -393,7 +381,7 @@ async function calculateNetPay(
       }
     }
 
-    // Recalculate percentages after filling values
+    // Recalculate percentages after potential updates
     for (const [key, value] of Object.entries(taxDetails)) {
       if (key !== "Net Pay") {
         percentages[key] = ((value / salary) * 100).toFixed(2) + "%";
@@ -417,7 +405,10 @@ async function calculateNetPay(
       `5. Social Security: $${taxDetails["Social Security"].toLocaleString()} (${percentages["Social Security"]})`
     );
     console.log(
-      `6. Other Taxes: $${taxDetails["Other"].toLocaleString()} (${percentages["Other"]})`
+      `6. Family Leave Insurance (FLI): $${taxDetails["Family Leave Insurance (FLI)"].toLocaleString()} (${percentages["Family Leave Insurance (FLI)"]})`
+    );
+    console.log(
+      `7. State Disability Insurance (SDI): $${taxDetails["State Disability Insurance (SDI)"].toLocaleString()} (${percentages["State Disability Insurance (SDI)"]})`
     );
 
     if (isWithinThreshold) {
