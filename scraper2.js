@@ -215,7 +215,7 @@ async function compareTaxData(
       const percentOther = percentagesOther[category];
 
       const difference = Math.abs(percentCalculated - percentOther);
-      if (difference > 1.5) {
+      if (difference > 1) {
         withinThreshold = false;
         break;
       }
