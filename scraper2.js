@@ -1,11 +1,13 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const { setTimeout } = require("timers/promises"); // Import setTimeout for delays
+const { setTimeout } = require("timers/promises"); // For small delays
 
-// Enable stealth mode with default configurations
+// Enable stealth mode
 puppeteer.use(StealthPlugin());
 
-// Function to calculate net pay and return tax data
+/**
+ * Calculate net pay and return tax data.
+ */
 async function calculateNetPay(
   salary,
   filingStatus,
@@ -16,26 +18,38 @@ async function calculateNetPay(
   let page;
 
   try {
-    // Adjust salary by subtracting additional withholding
-    const adjustedSalary = salary - additionalWithholding;
+    // IMPORTANT: Same config as scraper.js
+    browser = await puppeteer.launch({
+      executablePath: '/usr/bin/chromium',
+      headless: "new", // or true; "new" is Puppeteer 20+ recommended
+      defaultViewport: null,
+      devtools: false,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-infobars",
+        "--window-position=0,0",
+        "--window-size=1920,1080",
+        '--user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Safari/537.36"',
+      ],
+    });
 
-    // Launch Puppeteer browser with headless: true
-    browser = await puppeteer.launch({ headless: true });
     page = await browser.newPage();
 
-    // Set User-Agent
+    // Set user-agent again at the page level (just like scraper.js)
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
         "AppleWebKit/537.36 (KHTML, like Gecko) " +
         "Chrome/112.0.0.0 Safari/537.36"
     );
 
-    // Navigate to the SmartAsset income tax calculator
+    // 1) Navigate to the SmartAsset income tax calculator
     await page.goto("https://smartasset.com/taxes/income-taxes", {
       waitUntil: "networkidle2",
     });
 
-    // Select Filing Status
+    // 2) Select Filing Status
     await page.waitForSelector('span[id^="select2-chosen-"]', {
       visible: true,
     });
@@ -50,11 +64,13 @@ async function calculateNetPay(
       "Married Filing Separately": "Married Separately",
       "Head of Household": "Head of Household",
     };
-
     const optionText = filingStatusMap[filingStatus];
 
+    // Evaluate to click the correct status in the dropdown
     await page.evaluate((optionText) => {
-      const options = Array.from(document.querySelectorAll("ul.select2-results li"));
+      const options = Array.from(
+        document.querySelectorAll("ul.select2-results li")
+      );
       const desiredOption = options.find(
         (el) => el.textContent.trim() === optionText
       );
@@ -63,12 +79,14 @@ async function calculateNetPay(
       }
     }, optionText);
 
-    // Enter Zip Code
+    // 3) Enter Zip Code
     await page.waitForSelector('input[name="ud-current-location-display"]', {
       visible: true,
     });
     await page.evaluate(() => {
-      document.querySelector('input[name="ud-current-location-display"]').value = "";
+      document.querySelector(
+        'input[name="ud-current-location-display"]'
+      ).value = "";
     });
     await page.type('input[name="ud-current-location-display"]', zipcode, {
       delay: 100,
@@ -78,83 +96,87 @@ async function calculateNetPay(
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
 
-    // Enter Adjusted Annual Salary using Native Input Value Setter
-    await page.waitForSelector('input.dollar', { visible: true });
+    // 4) Adjust salary by subtracting additionalWithholding
+    //    (As you do in your logic)
+    const adjustedSalary = salary - additionalWithholding;
 
-    await page.evaluate((salary) => {
-      const input = document.querySelector('input.dollar');
+    // 5) Enter Adjusted Annual Salary
+    await page.waitForSelector("input.dollar", { visible: true });
+    await page.evaluate((val) => {
+      const input = document.querySelector("input.dollar");
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
         "value"
       ).set;
-      nativeInputValueSetter.call(input, salary);
-      const events = ["input", "change", "blur"];
-      events.forEach((eventName) => {
+      nativeInputValueSetter.call(input, val);
+      ["input", "change", "blur"].forEach((eventName) => {
         const event = new Event(eventName, { bubbles: true });
         input.dispatchEvent(event);
       });
     }, adjustedSalary.toString());
 
-    // Add a timeout before pressing "Enter"
+    // Add a small delay and then press Enter
     await setTimeout(2000);
     await page.keyboard.press("Enter");
 
-    // Wait for the results to load
+    // 6) Wait for the results to load
     await page.waitForSelector("span.income-after-taxes-next", {
       visible: true,
       timeout: 30000,
     });
 
+    // 7) Extract the tax data
     const taxData = await page.evaluate(() => {
       const getTextContent = (selector) => {
-        const element = document.querySelector(selector);
-        return element ? element.textContent.trim() : null;
+        const el = document.querySelector(selector);
+        return el ? el.textContent.trim() : null;
       };
 
-      const parsePercentage = (text) => {
-        return text ? parseFloat(text.replace("%", "")) : 0;
-      };
-
-      const parseCurrency = (text) => {
-        return text ? parseFloat(text.replace(/[$,]/g, "")) : 0;
-      };
+      const parsePercentage = (txt) =>
+        txt ? parseFloat(txt.replace("%", "")) : 0;
+      const parseCurrency = (txt) =>
+        txt ? parseFloat(txt.replace(/[$,]/g, "")) : 0;
 
       const data = {};
 
       data["Federal Withholding"] = {
         amount: parseCurrency(getTextContent("span.federal-amount-next")),
-        effectiveRate: parsePercentage(getTextContent("span.federal-effective-rate")),
+        effectiveRate: parsePercentage(
+          getTextContent("span.federal-effective-rate")
+        ),
       };
 
       data["State Tax Withholding"] = {
         amount: parseCurrency(getTextContent("span.state-amount-next")),
-        effectiveRate: parsePercentage(getTextContent("span.state-effective-rate")),
+        effectiveRate: parsePercentage(
+          getTextContent("span.state-effective-rate")
+        ),
       };
 
       data["City Tax"] = {
         amount: parseCurrency(getTextContent("span.local-amount-next")),
-        effectiveRate: parsePercentage(getTextContent("span.local-effective-rate")),
+        effectiveRate: parsePercentage(
+          getTextContent("span.local-effective-rate")
+        ),
       };
 
       data["FICA"] = {
         amount: parseCurrency(getTextContent("span.fica-amount-next")),
-        effectiveRate: parsePercentage(getTextContent("span.fica-effective-rate")),
+        effectiveRate: parsePercentage(
+          getTextContent("span.fica-effective-rate")
+        ),
       };
 
-      data["Net Pay"] = parseCurrency(getTextContent("span.income-after-taxes-next"));
+      data["Net Pay"] = parseCurrency(
+        getTextContent("span.income-after-taxes-next")
+      );
 
       return data;
     });
 
     return taxData;
   } catch (error) {
-    console.error(
-      "An error occurred during the Puppeteer script execution:",
-      error
-    );
-    if (browser) {
-      await browser.close();
-    }
+    console.error("An error occurred in scraper2.js:", error);
     throw error;
   } finally {
     if (browser) {
@@ -163,7 +185,9 @@ async function calculateNetPay(
   }
 }
 
-// Function to compare tax data and return both the boolean and the tax data
+/**
+ * Compare tax data and return { isWithinThreshold, taxData }
+ */
 async function compareTaxData(
   salary,
   filingStatus,
@@ -180,13 +204,18 @@ async function compareTaxData(
       additionalWithholding
     );
 
-    // Add Medicare and Social Security from taxDataToCompare to get FICA
+    // Combine "Medicare" + "Social Security" from taxDataToCompare to get "FICA"
     const ficaFromOther =
       taxDataToCompare["Medicare"] + taxDataToCompare["Social Security"];
 
-    const categories = ["Federal Withholding", "State Tax Withholding", "City Tax", "FICA"];
+    const categories = [
+      "Federal Withholding",
+      "State Tax Withholding",
+      "City Tax",
+      "FICA",
+    ];
 
-    // Compute percentages for each category from taxData (from calculateNetPay)
+    // Compute percentages for each category from taxData
     const percentagesCalculated = {};
     for (const category of categories) {
       let amountCalculated;
@@ -199,29 +228,27 @@ async function compareTaxData(
     }
 
     // Compute percentages for each category from taxDataToCompare
-    const percentagesOther = {};
-    percentagesOther["Federal Withholding"] =
-      (taxDataToCompare["Federal Withholding"] / salary) * 100;
-    percentagesOther["State Tax Withholding"] =
-      (taxDataToCompare["State Tax Withholding"] / salary) * 100;
-    percentagesOther["City Tax"] =
-      (taxDataToCompare["City Tax"] / salary) * 100;
-    percentagesOther["FICA"] = (ficaFromOther / salary) * 100;
+    const percentagesOther = {
+      "Federal Withholding":
+        (taxDataToCompare["Federal Withholding"] / salary) * 100,
+      "State Tax Withholding":
+        (taxDataToCompare["State Tax Withholding"] / salary) * 100,
+      "City Tax": (taxDataToCompare["City Tax"] / salary) * 100,
+      FICA: (ficaFromOther / salary) * 100,
+    };
 
     // Compare the percentages
     let withinThreshold = true;
     for (const category of categories) {
-      const percentCalculated = percentagesCalculated[category];
-      const percentOther = percentagesOther[category];
-
-      const difference = Math.abs(percentCalculated - percentOther);
-      if (difference > 1) {
+      const diff = Math.abs(
+        percentagesCalculated[category] - percentagesOther[category]
+      );
+      if (diff > 1) {
         withinThreshold = false;
         break;
       }
     }
 
-    // Return both the boolean and the taxData so scraper.js can use it
     return { isWithinThreshold: withinThreshold, taxData };
   } catch (error) {
     console.error("Error in compareTaxData:", error);
@@ -229,4 +256,5 @@ async function compareTaxData(
   }
 }
 
+// Export the function so scraper.js can call it
 module.exports = { compareTaxData };

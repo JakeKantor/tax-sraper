@@ -11,15 +11,18 @@ puppeteer.use(StealthPlugin());
  * Helper function to clear and focus an input field.
  */
 async function clearAndFocusField(page, selector) {
-  // 1) Click the field with triple-click to select all text
+  // Triple-click to select all text
   await page.click(selector, { clickCount: 3 });
 
-  // 2) Press backspace multiple times to ensure clearing
+  // Small delay to ensure the field is properly focused
+  await new Promise(resolve => setTimeout(resolve, 400));
+
+  // Press backspace multiple times to ensure clearing
   for (let i = 0; i < 6; i++) {
     await page.keyboard.press("Backspace");
   }
 
-  // 3) Optionally, ensure .value = "" from the DOM side
+  // Optionally, ensure .value = "" from the DOM side
   await page.evaluate((sel) => {
     const el = document.querySelector(sel);
     if (el) el.value = "";
@@ -103,6 +106,7 @@ async function calculateNetPay(
       const processedState = state.toLowerCase().replace(/\s+/g, "-");
 
       browser = await puppeteer.launch({
+        executablePath: '/usr/bin/chromium',
         headless: "new",
         defaultViewport: null,
         devtools: false,
