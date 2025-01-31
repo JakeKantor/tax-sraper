@@ -15,7 +15,7 @@ async function clearAndFocusField(page, selector) {
   await page.click(selector, { clickCount: 3 });
 
   // Small delay to ensure the field is properly focused
-  await new Promise(resolve => setTimeout(resolve, 400));
+  await new Promise((resolve) => setTimeout(resolve, 400));
 
   // Press backspace multiple times to ensure clearing
   for (let i = 0; i < 6; i++) {
@@ -36,21 +36,41 @@ async function extractTaxValue(page, labels) {
   try {
     const taxValue = await page.evaluate((labels) => {
       for (const lbl of labels) {
-        const labelElements = Array.from(
-          document.querySelectorAll("div.form-group > div.form-label")
-        );
-        const targetLabel = labelElements.find(
-          (el) => el.textContent.trim() === lbl
-        );
-        if (targetLabel) {
-          const valueElement = targetLabel.parentElement.querySelector(
-            "div.form-control-plaintext"
+        // Look for labels in different formats and locations
+        const labelSelectors = [
+          "div.form-group > div.form-label",
+          "div.form-group > strong.form-label",
+          "div.form-group > label.form-label",
+          "div.form-label",
+          "strong.form-label",
+        ];
+
+        for (const selector of labelSelectors) {
+          const labelElements = Array.from(document.querySelectorAll(selector));
+          const targetLabel = labelElements.find(
+            (el) => el.textContent.trim() === lbl
           );
-          if (valueElement) {
-            const value = parseFloat(
-              valueElement.textContent.replace(/[$,]/g, "")
-            );
-            return isNaN(value) ? 0 : value;
+
+          if (targetLabel) {
+            // Try different approaches to find the value
+            const valueElement =
+              targetLabel.parentElement.querySelector(
+                "div.form-control-plaintext"
+              ) ||
+              targetLabel.parentElement.querySelector(
+                "span.form-control-plaintext"
+              ) ||
+              targetLabel.nextElementSibling;
+
+            if (valueElement) {
+              const valueText = valueElement.textContent.trim();
+              // Handle negative values with parentheses and remove currency symbols
+              const cleanValue = valueText
+                .replace(/[$,()]/g, "")
+                .replace(/^\((.+)\)$/, "-$1");
+              const value = parseFloat(cleanValue);
+              return isNaN(value) ? 0 : value;
+            }
           }
         }
       }
@@ -60,6 +80,7 @@ async function extractTaxValue(page, labels) {
     return taxValue;
   } catch (error) {
     console.log(`Error extracting tax for labels: ${labels.join(", ")}`);
+    console.error(error);
     return 0;
   }
 }
@@ -106,7 +127,7 @@ async function calculateNetPay(
       const processedState = state.toLowerCase().replace(/\s+/g, "-");
 
       browser = await puppeteer.launch({
-        executablePath: '/usr/bin/chromium',
+        executablePath: "/usr/bin/chromium",
         headless: "new",
         defaultViewport: null,
         devtools: false,
@@ -308,19 +329,49 @@ async function calculateNetPay(
 
       // Extract tax categories
       const taxCategories = [
-        { name: "Net Pay", labels: ["Take home pay (net pay)"] },
-        { name: "Federal Withholding", labels: ["Federal Withholding"] },
-        { name: "State Tax Withholding", labels: ["State Tax Withholding"] },
-        { name: "City Tax", labels: ["City Tax"] },
-        { name: "Medicare", labels: ["Medicare"] },
-        { name: "Social Security", labels: ["Social Security"] },
+        {
+          name: "Net Pay",
+          labels: ["Take home pay (net pay)", "Net Pay", "Take Home Pay"],
+        },
+        {
+          name: "Federal Withholding",
+          labels: ["Federal Withholding", "Federal Income Tax Withholding"],
+        },
+        {
+          name: "State Tax Withholding",
+          labels: [
+            "State Tax Withholding",
+            "State Income Tax Withholding",
+            "State Withholding",
+          ],
+        },
+        {
+          name: "City Tax",
+          labels: ["City Tax", "Local Tax Withholding", "City Income Tax"],
+        },
+        {
+          name: "Medicare",
+          labels: ["Medicare", "Medicare Tax"],
+        },
+        {
+          name: "Social Security",
+          labels: ["Social Security", "Social Security Tax", "OASDI"],
+        },
         {
           name: "State Disability Insurance (SDI)",
-          labels: ["State Disability Insurance (SDI)"],
+          labels: [
+            "State Disability Insurance (SDI)",
+            "SDI",
+            "State Disability",
+          ],
         },
         {
           name: "Family Leave Insurance (FLI)",
-          labels: ["Family Leave Insurance (FLI)"],
+          labels: [
+            "Family Leave Insurance (FLI)",
+            "FLI",
+            "Family Leave Insurance",
+          ],
         },
       ];
 
@@ -376,13 +427,36 @@ async function calculateNetPay(
         "Family Leave Insurance (FLI)",
         "State Disability Insurance (SDI)",
       ].forEach((key) => {
-        if (totalTax > 0) {
-          const pct = (taxDetails[key] / totalTax) * 100;
-          percentages[key] = pct.toFixed(2) + "%";
-        } else {
-          percentages[key] = "0.00%";
-        }
+        const pct = (taxDetails[key] / salary) * 100;
+        percentages[key] = pct.toFixed(2) + "%";
       });
+
+      // Add print statements for PaycheckCity results
+      console.log("\n=== PaycheckCity.com Tax Calculation Results ===");
+      console.log("Federal Withholding:");
+      console.log(
+        `  Amount: $${taxDetails["Federal Withholding"].toLocaleString()}`
+      );
+      console.log(`  Rate: ${percentages["Federal Withholding"]}`);
+
+      console.log("\nState Tax Withholding:");
+      console.log(
+        `  Amount: $${taxDetails["State Tax Withholding"].toLocaleString()}`
+      );
+      console.log(`  Rate: ${percentages["State Tax Withholding"]}`);
+
+      console.log("\nCity Tax:");
+      console.log(`  Amount: $${taxDetails["City Tax"].toLocaleString()}`);
+      console.log(`  Rate: ${percentages["City Tax"]}`);
+
+      console.log("\nFICA:");
+      const ficaAmount = taxDetails["Medicare"] + taxDetails["Social Security"];
+      const ficaRate = ((ficaAmount / salary) * 100).toFixed(2);
+      console.log(`  Amount: $${ficaAmount.toLocaleString()}`);
+      console.log(`  Rate: ${ficaRate}%`);
+
+      console.log(`\nNet Pay: $${taxDetails["Net Pay"].toLocaleString()}`);
+      console.log("============================\n");
 
       // Pass/fail based on threshold:
       if (isWithinThreshold) {
@@ -390,7 +464,6 @@ async function calculateNetPay(
         // Return the tax details object + percentages (or anything else) only if success
         return {
           isWithinThreshold,
-          taxDetails,
           percentages,
         };
       } else {
@@ -417,10 +490,19 @@ async function main() {
     0,
     "New York",
     "35 Hudson Yards",
-    "New York City",
+    "New York",
     "10001",
     "SINGLE"
   );
+
+  // 65000,
+  // 0,
+  // "Florida",
+  // "5122 Forestgreen Dr E",
+  // "Lakeland",
+  // "33811",
+  // "SINGLE"
+  console.log("API Result:", JSON.stringify(result, null, 2));
 }
 
 main();

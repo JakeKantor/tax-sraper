@@ -20,7 +20,7 @@ async function calculateNetPay(
   try {
     // IMPORTANT: Same config as scraper.js
     browser = await puppeteer.launch({
-      executablePath: '/usr/bin/chromium',
+      executablePath: "/usr/bin/chromium",
       headless: "new", // or true; "new" is Puppeteer 20+ recommended
       defaultViewport: null,
       devtools: false,
@@ -174,6 +174,31 @@ async function calculateNetPay(
       return data;
     });
 
+    // After extracting tax data, add this logging before returning:
+    console.log("\n=== smartasset.com Tax Calculation Results ===");
+    console.log("Federal Withholding:");
+    console.log(
+      `  Amount: $${taxData["Federal Withholding"].amount.toLocaleString()}`
+    );
+    console.log(`  Rate: ${taxData["Federal Withholding"].effectiveRate}%`);
+
+    console.log("\nState Tax Withholding:");
+    console.log(
+      `  Amount: $${taxData["State Tax Withholding"].amount.toLocaleString()}`
+    );
+    console.log(`  Rate: ${taxData["State Tax Withholding"].effectiveRate}%`);
+
+    console.log("\nCity Tax:");
+    console.log(`  Amount: $${taxData["City Tax"].amount.toLocaleString()}`);
+    console.log(`  Rate: ${taxData["City Tax"].effectiveRate}%`);
+
+    console.log("\nFICA:");
+    console.log(`  Amount: $${taxData["FICA"].amount.toLocaleString()}`);
+    console.log(`  Rate: ${taxData["FICA"].effectiveRate}%`);
+
+    console.log(`\nNet Pay: $${taxData["Net Pay"].toLocaleString()}`);
+    console.log("============================\n");
+
     return taxData;
   } catch (error) {
     console.error("An error occurred in scraper2.js:", error);
@@ -204,52 +229,139 @@ async function compareTaxData(
       additionalWithholding
     );
 
+    // Calculate total deductions from PaycheckCity (including all categories)
+    const paycheckCityTotal =
+      taxDataToCompare["Federal Withholding"] +
+      taxDataToCompare["State Tax Withholding"] +
+      taxDataToCompare["City Tax"] +
+      taxDataToCompare["Medicare"] +
+      taxDataToCompare["Social Security"] +
+      (taxDataToCompare["State Disability Insurance (SDI)"] || 0) +
+      (taxDataToCompare["Family Leave Insurance (FLI)"] || 0);
+
+    // Calculate total deductions from SmartAsset
+    const smartAssetTotal =
+      taxData["Federal Withholding"].amount +
+      taxData["State Tax Withholding"].amount +
+      taxData["City Tax"].amount +
+      taxData["FICA"].amount;
+
     // Combine "Medicare" + "Social Security" from taxDataToCompare to get "FICA"
-    const ficaFromOther =
+    const ficaFromPaycheckCity =
       taxDataToCompare["Medicare"] + taxDataToCompare["Social Security"];
 
+    console.log("\n=== Detailed Tax Comparison ===");
+
+    // Compare core categories (as percentages)
     const categories = [
-      "Federal Withholding",
-      "State Tax Withholding",
-      "City Tax",
-      "FICA",
+      {
+        name: "Federal Withholding",
+        smartAsset: taxData["Federal Withholding"].amount,
+        paycheckCity: taxDataToCompare["Federal Withholding"],
+      },
+      {
+        name: "State Tax Withholding",
+        smartAsset: taxData["State Tax Withholding"].amount,
+        paycheckCity: taxDataToCompare["State Tax Withholding"],
+      },
+      {
+        name: "City Tax",
+        smartAsset: taxData["City Tax"].amount,
+        paycheckCity: taxDataToCompare["City Tax"],
+      },
+      {
+        name: "FICA",
+        smartAsset: taxData["FICA"].amount,
+        paycheckCity: ficaFromPaycheckCity,
+      },
     ];
 
-    // Compute percentages for each category from taxData
-    const percentagesCalculated = {};
-    for (const category of categories) {
-      let amountCalculated;
-      if (category === "FICA") {
-        amountCalculated = taxData["FICA"].amount;
-      } else {
-        amountCalculated = taxData[category].amount;
-      }
-      percentagesCalculated[category] = (amountCalculated / salary) * 100;
-    }
-
-    // Compute percentages for each category from taxDataToCompare
-    const percentagesOther = {
-      "Federal Withholding":
-        (taxDataToCompare["Federal Withholding"] / salary) * 100,
-      "State Tax Withholding":
-        (taxDataToCompare["State Tax Withholding"] / salary) * 100,
-      "City Tax": (taxDataToCompare["City Tax"] / salary) * 100,
-      FICA: (ficaFromOther / salary) * 100,
-    };
-
-    // Compare the percentages
     let withinThreshold = true;
+    console.log("\nCore Tax Categories:");
     for (const category of categories) {
-      const diff = Math.abs(
-        percentagesCalculated[category] - percentagesOther[category]
+      const smartAssetPct = (category.smartAsset / salary) * 100;
+      const paycheckCityPct = (category.paycheckCity / salary) * 100;
+      const diff = Math.abs(smartAssetPct - paycheckCityPct);
+
+      console.log(`\n${category.name}:`);
+      console.log(
+        `  SmartAsset:   $${category.smartAsset.toLocaleString()} (${smartAssetPct.toFixed(
+          2
+        )}%)`
       );
+      console.log(
+        `  PaycheckCity: $${category.paycheckCity.toLocaleString()} (${paycheckCityPct.toFixed(
+          2
+        )}%)`
+      );
+      console.log(`  Difference:   ${diff.toFixed(2)}%`);
+
       if (diff > 1) {
+        console.log(`  ❌ Exceeds 1% threshold`);
         withinThreshold = false;
-        break;
+      } else {
+        console.log(`  ✓ Within threshold`);
       }
     }
 
-    return { isWithinThreshold: withinThreshold, taxData };
+    // Log additional PaycheckCity categories not in SmartAsset
+    console.log("\nAdditional PaycheckCity Categories (not in SmartAsset):");
+    const additionalCategories = [
+      "State Disability Insurance (SDI)",
+      "Family Leave Insurance (FLI)",
+    ];
+
+    for (const category of additionalCategories) {
+      const amount = taxDataToCompare[category] || 0;
+      const percentage = (amount / salary) * 100;
+      if (amount > 0) {
+        console.log(`\n${category}:`);
+        console.log(`  Amount: $${amount.toLocaleString()}`);
+        console.log(`  Rate:   ${percentage.toFixed(2)}%`);
+      }
+    }
+
+    // Compare total deductions
+    const totalDiffAmount = Math.abs(paycheckCityTotal - smartAssetTotal);
+    const totalDiffPct = (totalDiffAmount / salary) * 100;
+
+    console.log("\nTotal Deductions:");
+    console.log(
+      `  SmartAsset:   $${smartAssetTotal.toLocaleString()} (${(
+        (smartAssetTotal / salary) *
+        100
+      ).toFixed(2)}%)`
+    );
+    console.log(
+      `  PaycheckCity: $${paycheckCityTotal.toLocaleString()} (${(
+        (paycheckCityTotal / salary) *
+        100
+      ).toFixed(2)}%)`
+    );
+    console.log(
+      `  Difference:   $${totalDiffAmount.toLocaleString()} (${totalDiffPct.toFixed(
+        2
+      )}%)`
+    );
+
+    if (totalDiffPct > 1) {
+      console.log("  ❌ Total difference exceeds 1% threshold");
+    } else {
+      console.log("  ✓ Total within threshold");
+    }
+
+    console.log("\n============================");
+
+    return {
+      isWithinThreshold: withinThreshold,
+      taxData,
+      comparison: {
+        smartAssetTotal,
+        paycheckCityTotal,
+        totalDiffAmount,
+        totalDiffPct,
+      },
+    };
   } catch (error) {
     console.error("Error in compareTaxData:", error);
     throw error;
