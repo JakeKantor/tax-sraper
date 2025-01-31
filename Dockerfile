@@ -7,13 +7,13 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm install express
 
 # Copy the rest of your application code
 COPY . .
 
-# Expose the desired port (if your application uses one)
+# Expose the API port
 EXPOSE 3000
 
 # Command to run your application
-CMD ["node", "scraper.js"]
+CMD ["node", "server.js"]

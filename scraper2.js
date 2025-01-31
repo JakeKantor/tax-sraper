@@ -98,7 +98,7 @@ async function calculateNetPay(
 
     // 4) Adjust salary by subtracting additionalWithholding
     //    (As you do in your logic)
-    const adjustedSalary = salary - additionalWithholding;
+    const adjustedSalary = salary;
 
     // 5) Enter Adjusted Annual Salary
     await page.waitForSelector("input.dollar", { visible: true });

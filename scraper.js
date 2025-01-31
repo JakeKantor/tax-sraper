@@ -505,4 +505,6 @@ async function main() {
   console.log("API Result:", JSON.stringify(result, null, 2));
 }
 
-main();
+module.exports = {
+  calculateNetPay
+};
